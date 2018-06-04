@@ -3,3 +3,4 @@ Getopt::Long
 Pod::Usage
 IO::Socket::SSL
 Mojo::SMTP::Client
+Test::Exception
