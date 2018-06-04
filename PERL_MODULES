@@ -2,4 +2,4 @@ Mojolicious@7.77
 Getopt::Long
 Pod::Usage
 IO::Socket::SSL
-        
+Mojo::SMTP::Client
