@@ -4,8 +4,8 @@ AC_INIT([ssl-proxy],m4_esyscmd([tr -d '\n' < VERSION]),[jonathan@oetiker.ch])
 AC_PREREQ([2.59])
 AC_CONFIG_AUX_DIR(conftools)
 
-MJ_CLASS=SSLProxy
-MJ_SCRIPT=sslproxy
+MJ_CLASS=SMTPProxy
+MJ_SCRIPT=smtpproxy
 
 AC_SUBST(MJ_CLASS)
 AC_SUBST(MJ_SCRIPT)
