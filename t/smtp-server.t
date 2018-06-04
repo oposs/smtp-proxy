@@ -5,12 +5,13 @@ use strict;
 use warnings;
 use v5.16;
 
+use Mojo::Promise;
 use Mojo::SMTP::Client;
 use SMTPProxy::SMTPServer;
 use Test::More;
 use Test::Exception;
 
-plan tests => 2;
+plan tests => 4;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = 42349;
@@ -20,11 +21,17 @@ my $server = SMTPProxy::SMTPServer->new(
     port => $TEST_PORT,
     tls_ca => "$FindBin::Bin/ca.crt",
     tls_cert => "$FindBin::Bin/server.crt",
-    tls_key => "$FindBin::Bin/server.key"
+    tls_key => "$FindBin::Bin/server.key",
+    service_name => 'test.service.name',
 );
 $server->start(sub {
     my $connection = shift;
     isa_ok $connection, 'SMTPProxy::SMTPServer::Connection';
+    $connection->mail(sub {
+        my ($from, $parameters) = @_;
+        is $from, 'sender@foobar.com', 'Correct mail from';
+        is scalar(@$parameters), 0, 'No SMTP parameters';
+    });
 });
 
 Mojo::IOLoop->next_tick(\&makeTestConnection);

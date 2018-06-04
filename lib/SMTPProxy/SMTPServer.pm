@@ -4,7 +4,7 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 
-has [qw(address port tls_ca tls_cert tls_key)];
+has [qw(address port tls_ca tls_cert tls_key service_name)];
 
 sub start {
     my ($self, $callback) = @_;
@@ -15,7 +15,8 @@ sub start {
             my $connection = SMTPProxy::SMTPServer::Connection->new(
                 loop => $loop,
                 stream => $stream,
-                id => $id
+                id => $id,
+                service_name => $self->service_name
             );
             $callback->($connection);
             $connection->process;
@@ -38,7 +39,8 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
         port => 1234,
         tls_ca => 'path/to/ca.crt',
         tls_cert => 'path/to/server.crt',
-        tls_key => 'path/to/server.key'
+        tls_key => 'path/to/server.key',
+        service_name => 'host.to.use.in.greeting.com'
     );
     $server->start(sub {
         my $connection = shift;
@@ -101,6 +103,10 @@ The server certificate for use with StartTLS.
 =head2 tls_key
 
 The server key for use with StartTLS.
+
+=head2 service_name
+
+The name of the service, to be used in the handshake.
 
 =head1 METHODS
 
