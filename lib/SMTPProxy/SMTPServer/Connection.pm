@@ -1,10 +1,12 @@
 package SMTPProxy::SMTPServer::Connection;
 
 use Mojo::Base -base;
+use Mojo::IOLoop;
+use Mojo::IOLoop::TLS;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id service_name auth_plain mail to data vrfy rset quit)];
+has [qw(loop stream id server clientAddress auth_plain mail to data vrfy rset quit)];
 
 # States we may be in.
 use constant {
@@ -17,9 +19,13 @@ use constant {
     WANT_DATA           => 6,
 };
 
+sub log {
+    shift->server->log
+}
+
 sub process {
     my $self = shift;
-    $self->stream->write(formatReply(220, $self->service_name . ' SMTP service ready'));
+    $self->stream->write(formatReply(220, $self->server->service_name . ' SMTP service ready'));
     $self->{state} = WANT_INITIAL_EHLO;
     $self->stream->on(read => sub {
         # Append bytes to input buffer.
@@ -62,7 +68,7 @@ sub _processCommand {
     # QUIT and NOOP are valid in any state.
     if ($commandName eq 'QUIT') {
         $self->stream->write(
-            formatReply(221, $self->service_name . 'Service closing transmission channel'),
+            formatReply(221, $self->server->service_name . 'Service closing transmission channel'),
             sub { Mojo::IOLoop->remove($self->id) });
     }
     elsif ($commandName eq 'NOOP') {
@@ -80,7 +86,7 @@ sub _processInitialEhlo {
     my $commandName = $command->{command};
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->stream->write(formatReply(250,
-            $self->service_name . ' offers a warm hug of welcome',
+            $self->server->service_name . ' offers a warm hug of welcome',
             'STARTTLS'));
         $self->{state} = WANT_STARTTLS;
     }
@@ -93,8 +99,25 @@ sub _processStartTLS {
     my ($self, $command) = @_;
     my $commandName = $command->{command};
     if ($commandName eq 'STARTTLS') {
-        $self->stream->write(formatReply(220, 'Go ahead'));
-        say "TLS upgrade NYI";
+        $self->stream->write(formatReply(220, 'Go ahead'), sub {
+            my $tls = Mojo::IOLoop::TLS->new($self->stream->steal_handle);
+            $tls->on(upgrade => sub {
+                my ($tls, $new_handle) = @_;
+                $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
+                say "upgraded";
+            });
+            $tls->on(error => sub {
+                my ($tls, $err) = @_;
+                $self->log->info("Failed TLS upgrade for " . $self->clientAddress . ": $err");
+                Mojo::IOLoop->remove($self->id);
+            });
+            $tls->negotiate(
+                server => 1,
+                tls_cert => $self->server->tls_cert,
+                tls_key => $self->server->tls_key
+            );
+            $self->log->debug("Starting TLS upgrade for " . $self->clientAddress);
+        });
     }
     else {
         $self->stream->write(formatReply(554, 'Command refused due to lack of security'));

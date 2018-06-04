@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use v5.16;
 
+use Mojo::Log;
 use Mojo::Promise;
 use Mojo::SMTP::Client;
 use SMTPProxy::SMTPServer;
@@ -17,11 +18,12 @@ my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = 42349;
 
 my $server = SMTPProxy::SMTPServer->new(
+    log => Mojo::Log->new(level => 'warn'),
     address => $TEST_HOST,
     port => $TEST_PORT,
-    tls_ca => "$FindBin::Bin/ca.crt",
-    tls_cert => "$FindBin::Bin/server.crt",
-    tls_key => "$FindBin::Bin/server.key",
+    tls_ca => "$FindBin::Bin/certs-and-keys/ca.crt",
+    tls_cert => "$FindBin::Bin/certs-and-keys/server.crt",
+    tls_key => "$FindBin::Bin/certs-and-keys/server.key",
     service_name => 'test.service.name',
 );
 $server->start(sub {
@@ -38,7 +40,11 @@ Mojo::IOLoop->next_tick(\&makeTestConnection);
 Mojo::IOLoop->start;
 
 sub makeTestConnection {
-    my $smtp = Mojo::SMTP::Client->new(address => $TEST_HOST, port => $TEST_PORT, autodie => 1);
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PORT,
+        autodie => 1
+    );
     $smtp->send(
         starttls => 1,
         auth => {login => 'fooser', password => 's3cr3t'},

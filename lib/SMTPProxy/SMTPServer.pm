@@ -4,7 +4,7 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 
-has [qw(address port tls_ca tls_cert tls_key service_name)];
+has [qw(address port log tls_ca tls_cert tls_key service_name)];
 
 sub start {
     my ($self, $callback) = @_;
@@ -12,14 +12,21 @@ sub start {
         { address => $self->address, port => $self->port },
         sub {
             my ($loop, $stream, $id) = @_;
+
+            my $handle = $stream->handle;
+            my $clientAddress = $handle->peerhost . ':' . $handle->peerport;
+            $self->log->debug("New incoming connection from $clientAddress");
+
             my $connection = SMTPProxy::SMTPServer::Connection->new(
                 loop => $loop,
                 stream => $stream,
                 id => $id,
-                service_name => $self->service_name
+                server => $self,
+                clientAddress => $clientAddress
             );
             $callback->($connection);
             $connection->process;
+            $self->log->debug("Starting processing of request for $clientAddress");
         });
 }
 
@@ -35,6 +42,7 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
 
     use SMTPProxy::SMTPServer;
     my $server = SMTPProxy->new(
+        log => $some-mojo-log-object,
         address => '0.0.0.0',
         port => 1234,
         tls_ca => 'path/to/ca.crt',
@@ -91,6 +99,10 @@ Address for the server to listen on.
 =head2 port
 
 Port for the server to listen on.
+
+=head2 log
+
+An instance of Mojo::Log or something with an equivalent API, for logging.
 
 =head2 tls_ca
 
