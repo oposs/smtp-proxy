@@ -12,7 +12,7 @@ use SMTPProxy::SMTPServer;
 use Test::More;
 use Test::Exception;
 
-plan tests => 7;
+plan tests => 14;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = 42349;
@@ -39,7 +39,42 @@ $server->start(sub {
     $connection->mail(sub {
         my ($from, $parameters) = @_;
         is $from, 'sender@foobar.com', 'Correct mail from';
-        is scalar(@$parameters), 0, 'No SMTP parameters';
+        is scalar(@$parameters), 0, 'No MAIL parameters';
+        return Mojo::Promise->new->resolve;
+    });
+    $connection->rcpt(sub {
+        my ($to, $parameters) = @_;
+        is $to, 'another@foobaz.com', 'Correct mail from';
+        is scalar(@$parameters), 0, 'No RCPT parameters';
+        return Mojo::Promise->new->resolve;
+    });
+    $connection->data(sub {
+        my ($headersPromise, $bodyPromise) = @_;
+        isa_ok $headersPromise, 'Mojo::Promise', 'Get a headers promise';
+        isa_ok $bodyPromise, 'Mojo::Promise', 'Get a body promise';
+        my $result = Mojo::Promise->new;
+        $headersPromise->then(sub {
+            my $headers = shift;
+            my $expectedHeaders = join "\r\n",
+                'Subject: Some message subject',
+                'From: from@foobar.com',
+                'To: another@foobaz.com',
+                '';
+            is $headers, $expectedHeaders, 'Got the expected headers';
+        });
+        $bodyPromise->then(sub {
+            my $body = shift;
+            my $expectedBody = join "\r\n",
+                'Some message text',
+                'More message text',
+                '';
+            is $body, $expectedBody, 'Got the expected body';
+            $result->resolve;
+        });
+        return $result;
+    });
+    $connection->quit(sub {
+        pass 'Quit called';
     });
 });
 
@@ -55,11 +90,17 @@ sub makeTestConnection {
     );
     $smtp->send(
         starttls => 1,
-        auth => {login => 'fooser', password => 's3cr3t'},
-        from => 'sender@foobar.com',
-        to   => 'another@foobaz.com',
-        data => 'Hi this is a message lol',
-        quit => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => 'another@foobaz.com',
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
         sub {
             my ($smtp, $resp) = @_;
             ok(!($resp->error), 'No error on sending');

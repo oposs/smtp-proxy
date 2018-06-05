@@ -4,11 +4,12 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use Mojo::IOLoop::Stream;
 use Mojo::IOLoop::TLS;
+use Mojo::Promise;
 use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id server clientAddress auth_plain mail to data vrfy rset quit)];
+has [qw(loop stream id server clientAddress auth_plain mail rcpt data vrfy rset quit)];
 
 # States we may be in.
 use constant {
@@ -80,6 +81,8 @@ sub _processCommand {
 
     # QUIT and NOOP are valid in any state.
     if ($commandName eq 'QUIT') {
+        my $callback = $self->quit;
+        $callback->() if $callback;
         $self->stream->write(
             formatReply(221, $self->server->service_name . 'Service closing transmission channel'),
             sub { Mojo::IOLoop->remove($self->id) });
@@ -205,6 +208,7 @@ sub _makeAuthPlainCallback {
         $promise->then(sub {
             $self->stream->write(formatReply(235, 'Authentication successful'));
             $self->log->debug('Successfully authenticated ' . $self->clientAddress);
+            $self->{state} = WANT_MAIL;
         })->catch(sub {
             $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
             $self->log->debug('Authentication failed for ' . $self->clientAddress);
@@ -213,6 +217,103 @@ sub _makeAuthPlainCallback {
     else {
         $self->log->warn('AUTH used but no auth callback set');
         $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
+    }
+}
+
+sub _processMail {
+    my ($self, $command) = @_;
+    if ($command->{command} eq 'MAIL') {
+        my $promise = $self->mail->($command->{from}, $command->{parameters});
+        $promise->then(sub {
+            $self->stream->write(formatReply(250, 'OK'));
+            $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
+            $self->{state} = WANT_RCPT;
+        })->catch(sub {
+            $self->stream->write(formatReply(553,
+                'Requested action not taken: mailbox name not allowed'));
+            $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
+        });
+    }
+    else {
+        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+    }
+}
+
+sub _processRcpt {
+    my ($self, $command) = @_;
+    if ($command->{command} eq 'RCPT') {
+        my $promise = $self->rcpt->($command->{to}, $command->{parameters});
+        $promise->then(sub {
+            $self->stream->write(formatReply(250, 'OK'));
+            $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
+            $self->{state} = WANT_DATA;
+        })->catch(sub {
+            $self->stream->write(formatReply(550,
+                'Will not send mail to this user'));
+            $self->log->debug('RCPT command rejected for ' . $self->clientAddress);
+        });
+    }
+    else {
+        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+    }
+}
+
+sub _processData {
+    my ($self, $command) = @_;
+    if ($command->{command} eq 'DATA') {
+        my $headersPromise = Mojo::Promise->new;
+        my $bodyPromise = Mojo::Promise->new;
+        my $promise = $self->data->($headersPromise, $bodyPromise);
+        my $headersDone = 0;
+        my $handled = '';
+        $self->{dataEater} = sub {
+            my $buffer = shift;
+            for my $line (split(/(?<=\n)/, $buffer)) {
+                # Defer handling incomplete lines.
+                return $line unless $line =~ /\n$/;
+
+                # If it's a '.' then it's the end of the message.
+                if ($line =~ /^\.\r?\n$/) {
+                    if (!$headersDone) {
+                        $headersPromise->resolve($handled);
+                        $bodyPromise->resolve('');
+                    }
+                    else {
+                        $bodyPromise->resolve($handled);
+                    }
+                    $self->{dataEater} = '';
+                    $promise
+                        ->then(sub {
+                            $self->stream->write(formatReply(250, 'OK'));
+                            $self->{state} = WANT_MAIL;
+                            $self->log->debug('Accepted MAIL command for ' . $self->clientAddress);
+                        })
+                        ->catch(sub {
+                            my $message = shift;
+                            $self->stream->write(formatReply(550, $message // ''));
+                            $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
+                            $self->{state} = WANT_MAIL;
+                        });
+                }
+
+                # If we're awaiting headers and we get an empty line, then
+                # we're done with the headers.
+                elsif (!$headersDone && $line =~ /^\r?\n$/) {
+                    $headersPromise->resolve($handled);
+                    $handled = '';
+                    $headersDone = 1;
+                }
+
+                # Otherwise, it's just a line to collected.
+                else {
+                    $handled .= $line;
+                }
+            }
+        };
+        $self->stream->write(formatReply(354, ''));
+    }
+    else {
+        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
     }
 }
 

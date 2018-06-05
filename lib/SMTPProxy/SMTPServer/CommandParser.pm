@@ -22,7 +22,7 @@ sub parseCommand {
         elsif ($command eq 'PING') {
             $parsed->{text} = $arguments;
         }
-        elsif ($command eq 'QUIT' || $command eq 'STARTTLS') {
+        elsif ($command eq 'QUIT' || $command eq 'STARTTLS' || $command eq 'DATA') {
             if ($arguments) {
                 $parsed->{error} = 'no arguments allowed';
                 $parsed->{suggested_reply} = 501;
@@ -38,6 +38,50 @@ sub parseCommand {
                 $parsed->{suggested_reply} = 501;
             }
         }
+        elsif ($command eq 'MAIL') {
+            if ($arguments =~ /^FROM:<([^>]+)>(?: (.*))?$/) {
+                $parsed->{from} = $1;
+                if ($2) {
+                    my $parameters = _parseParameters($2);
+                    if ($parameters) {
+                        $parsed->{parameters} = $parameters;
+                    }
+                    else {
+                        $parsed->{error} = 'invalid MAIL parameters';
+                        $parsed->{suggested_reply} = 501;
+                    }
+                }
+                else {
+                    $parsed->{parameters} = [];
+                }
+            }
+            else {
+                $parsed->{error} = 'invalid MAIL arguments';
+                $parsed->{suggested_reply} = 501;
+            }
+        }
+        elsif ($command eq 'RCPT') {
+            if ($arguments =~ /^TO:<([^>]+)>(?: (.*))?$/) {
+                $parsed->{to} = $1;
+                if ($2) {
+                    my $parameters = _parseParameters($2);
+                    if ($parameters) {
+                        $parsed->{parameters} = $parameters;
+                    }
+                    else {
+                        $parsed->{error} = 'invalid RCPT parameters';
+                        $parsed->{suggested_reply} = 501;
+                    }
+                }
+                else {
+                    $parsed->{parameters} = [];
+                }
+            }
+            else {
+                $parsed->{error} = 'invalid MAIL arguments';
+                $parsed->{suggested_reply} = 501;
+            }
+        }
         else {
             $parsed->{error} = 'unknown command';
             $parsed->{suggested_reply} = 502;
@@ -47,6 +91,17 @@ sub parseCommand {
         $parsed = { error => 'malformed command', suggested_reply => 500 };
     }
     return ($parsed, $buffer);
+}
+
+sub _parseParameters {
+    my @paramStrings = split ' ', shift;
+    my @parameters;
+    for (@paramStrings) {
+        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([^\x00-\x20=]+))/) {
+            push @parameters, { keyword => $1, value => $2 };
+        }
+    }
+    return \@parameters;
 }
 
 1;

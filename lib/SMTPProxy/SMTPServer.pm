@@ -62,8 +62,8 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
             # Do something with these, return Promise.
             return Mojo::Promise->new->resolve;
         });
-        $connection->to(sub {
-            my ($rcpt, $parameters) = @_;
+        $connection->rcpt(sub {
+            my ($to, $parameters) = @_;
             # Do something with these, return Promise.
             return Mojo::Promise->new->resolve;
         });
@@ -83,10 +83,10 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
             return Promise->new->reject(553, 'User ambiguous');
         });
         $connection->rset(sub {
-            return Promise->new->resolve;
+            # Nothing async happens here, so return value ignored
         });
         $connection->quit(sub {
-            return Promise->new->resolve;
+            # Nothing async happens here, so return value ignored
         });
     });
 
