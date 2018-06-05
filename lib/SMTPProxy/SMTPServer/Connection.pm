@@ -260,7 +260,11 @@ sub _processRcpt {
 
 sub _processData {
     my ($self, $command) = @_;
-    if ($command->{command} eq 'DATA') {
+    if ($command->{command} eq 'RCPT') {
+        # An extra recipient; fine.
+        $self->_processRcpt($command);
+    }
+    elsif ($command->{command} eq 'DATA') {
         my $headersPromise = Mojo::Promise->new;
         my $bodyPromise = Mojo::Promise->new;
         my $promise = $self->data->($headersPromise, $bodyPromise);

@@ -12,7 +12,7 @@ use SMTPProxy::SMTPServer;
 use Test::More;
 use Test::Exception;
 
-plan tests => 14;
+plan tests => 16;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = 42349;
@@ -42,10 +42,16 @@ $server->start(sub {
         is scalar(@$parameters), 0, 'No MAIL parameters';
         return Mojo::Promise->new->resolve;
     });
+    my $rcptCount = 0;
     $connection->rcpt(sub {
         my ($to, $parameters) = @_;
-        is $to, 'another@foobaz.com', 'Correct mail from';
-        is scalar(@$parameters), 0, 'No RCPT parameters';
+        if ($rcptCount++ == 0) {
+            is $to, 'another@foobaz.com', "Correct mail from ($rcptCount)";
+        }
+        else {
+            is $to, 'brother@foobaz.com', "Correct mail from ($rcptCount)";
+        }
+        is scalar(@$parameters), 0, "No RCPT parameters ($rcptCount)";
         return Mojo::Promise->new->resolve;
     });
     $connection->data(sub {
@@ -59,6 +65,7 @@ $server->start(sub {
                 'Subject: Some message subject',
                 'From: from@foobar.com',
                 'To: another@foobaz.com',
+                'Cc: brother@foobaz.com',
                 '';
             is $headers, $expectedHeaders, 'Got the expected headers';
         });
@@ -92,11 +99,12 @@ sub makeTestConnection {
         starttls => 1,
         auth     => {login => 'fooser', password => 's3cr3t'},
         from     => 'sender@foobar.com',
-        to       => 'another@foobaz.com',
+        to       => ['another@foobaz.com', 'brother@foobaz.com'],
         data     => join("\r\n",
                         'Subject: Some message subject',
                         'From: from@foobar.com',
                         'To: another@foobaz.com',
+                        'Cc: brother@foobaz.com',
                         '',
                         'Some message text',
                         'More message text'),
