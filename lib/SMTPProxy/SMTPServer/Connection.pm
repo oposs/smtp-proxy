@@ -40,22 +40,28 @@ sub _startReader {
         state $buffer;
         $buffer .= $bytes;
 
-        # Try to parse a command.
-        my $command;
-        ($command, $buffer) = parseCommand($buffer);
-        if ($command) {
-            if ($command->{error}) {
-                $self->stream->write(formatReply(
-                    $command->{suggested_reply} // 500,
-                    $command->{error}
-                ));
-            }
-            else {
-                $self->_processCommand($command);
-            }
+        # If we have an active data eater, provide it to that.
+        if ($self->{dataEater}) {
+            $buffer = $self->{dataEater}->($buffer);
         }
 
-            });
+        # Otherwise, try to parse a command.
+        else {
+            my $command;
+            ($command, $buffer) = parseCommand($buffer);
+            if ($command) {
+                if ($command->{error}) {
+                    $self->stream->write(formatReply(
+                        $command->{suggested_reply} // 500,
+                        $command->{error}
+                    ));
+                }
+                else {
+                    $self->_processCommand($command);
+                }
+            }
+        }
+    });
 }
 
 my @STATE_METHODS = (
@@ -162,8 +168,23 @@ sub _processAuth {
                 $self->_makeAuthPlainCallback($command->{initial});
             }
             else {
-                # XXX Handle second line of auth
-                $self->log->error('NYI multi-line AUTH');
+                $self->{dataEater} = sub {
+                    my $buffer = shift;
+                    if ($buffer =~ /^(.+)\r?\n$/) {
+                        $self->{dataEater} = undef;
+                        $self->_makeAuthPlainCallback($1);
+                        return '';
+                    }
+                    elsif ($buffer =~ /\n/) {
+                        $self->stream->write(formatReply(500,
+                            'confused authentication response'));
+                        return '';
+                    }
+                    else {
+                        return $buffer;
+                    }
+                };
+                $self->stream->write(formatReply(334, ''));
             }
         }
         else {
