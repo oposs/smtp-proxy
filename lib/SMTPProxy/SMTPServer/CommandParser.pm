@@ -28,6 +28,16 @@ sub parseCommand {
                 $parsed->{suggested_reply} = 501;
             }
         }
+        elsif ($command eq 'AUTH') {
+            if ($arguments =~ /^(\w+)(?: (.*))$/) {
+                $parsed->{mechanism} = $1;
+                $parsed->{initial} = $2;
+            }
+            else {
+                $parsed->{error} = 'invalid AUTH arguments';
+                $parsed->{suggested_reply} = 501;
+            }
+        }
         else {
             $parsed->{error} = 'unknown command';
             $parsed->{suggested_reply} = 502;

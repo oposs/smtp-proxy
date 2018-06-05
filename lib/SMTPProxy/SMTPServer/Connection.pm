@@ -2,7 +2,9 @@ package SMTPProxy::SMTPServer::Connection;
 
 use Mojo::Base -base;
 use Mojo::IOLoop;
+use Mojo::IOLoop::Stream;
 use Mojo::IOLoop::TLS;
+use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
@@ -27,6 +29,11 @@ sub process {
     my $self = shift;
     $self->stream->write(formatReply(220, $self->server->service_name . ' SMTP service ready'));
     $self->{state} = WANT_INITIAL_EHLO;
+    $self->_startReader();
+}
+
+sub _startReader {
+    my $self = shift;
     $self->stream->on(read => sub {
         # Append bytes to input buffer.
         my ($stream, $bytes) = @_;
@@ -104,7 +111,10 @@ sub _processStartTLS {
             $tls->on(upgrade => sub {
                 my ($tls, $new_handle) = @_;
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
-                say "upgraded";
+                $self->stream(Mojo::IOLoop::Stream->new($new_handle));
+                $self->{state} = WANT_TLS_EHLO;
+                $self->_startReader();
+                $self->stream->start;
             });
             $tls->on(error => sub {
                 my ($tls, $err) = @_;
@@ -120,7 +130,68 @@ sub _processStartTLS {
         });
     }
     else {
-        $self->stream->write(formatReply(554, 'Command refused due to lack of security'));
+        $self->stream->write(formatReply(530, 'Must issue a STARTTLS command first'));
+    }
+}
+
+sub _processTLSEhlo {
+    my ($self, $command) = @_;
+    my $commandName = $command->{command};
+    if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
+        $self->stream->write(formatReply(250,
+            $self->server->service_name . ' offers another warm hug of welcome',
+            'AUTH PLAIN'));
+        $self->{state} = WANT_AUTH;
+    }
+    else {
+        # RFC 3207 says that the client SHOULD sent an EHLO after STARTTLS
+        # has done the TLS handshake. Alas, some clients do not do this,
+        # and proceed directly to sending an AUTH command or something else.
+        # If that happens, set state to WANT_AUTH and delegate.
+        $self->{state} = WANT_AUTH;
+        $self->_processAuth($command);
+    }
+}
+
+sub _processAuth {
+    my ($self, $command) = @_;
+    my $commandName = $command->{command};
+    if ($commandName eq 'AUTH') {
+        if ($command->{mechanism} eq 'PLAIN') {
+            if ($command->{initial}) {
+                $self->_makeAuthPlainCallback($command->{initial});
+            }
+            else {
+                # XXX Handle second line of auth
+                $self->log->error('NYI multi-line AUTH');
+            }
+        }
+        else {
+            $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
+        }
+    }
+    else {
+        $self->stream->write(formatReply(530, 'Authentication required'));
+    }
+}
+
+sub _makeAuthPlainCallback {
+    my ($self, $base64) = @_;
+    my @args = split "\0", decode_base64($base64);
+    my $authCallback = $self->auth_plain;
+    if ($authCallback) {
+        my $promise = $authCallback->(@args);
+        $promise->then(sub {
+            $self->stream->write(formatReply(235, 'Authentication successful'));
+            $self->log->debug('Successfully authenticated ' . $self->clientAddress);
+        })->catch(sub {
+            $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
+            $self->log->debug('Authentication failed for ' . $self->clientAddress);
+        });
+    }
+    else {
+        $self->log->warn('AUTH used but no auth callback set');
+        $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
     }
 }
 

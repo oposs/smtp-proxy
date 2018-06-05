@@ -12,7 +12,7 @@ use SMTPProxy::SMTPServer;
 use Test::More;
 use Test::Exception;
 
-plan tests => 4;
+plan tests => 7;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = 42349;
@@ -29,6 +29,13 @@ my $server = SMTPProxy::SMTPServer->new(
 $server->start(sub {
     my $connection = shift;
     isa_ok $connection, 'SMTPProxy::SMTPServer::Connection';
+    $connection->auth_plain(sub {
+        my ($authzid, $authcid, $password) = @_;
+        is $authzid, '', 'Correct authzid passed to auth callback';
+        is $authcid, 'fooser', 'Correct authcid passed to auth callback';
+        is $password, 's3cr3t', 'Correct password passed to auth callback';
+        return Mojo::Promise->new->resolve;
+    });
     $connection->mail(sub {
         my ($from, $parameters) = @_;
         is $from, 'sender@foobar.com', 'Correct mail from';
@@ -43,7 +50,8 @@ sub makeTestConnection {
     my $smtp = Mojo::SMTP::Client->new(
         address => $TEST_HOST,
         port => $TEST_PORT,
-        autodie => 1
+        autodie => 1,
+        tls_verify => 0,
     );
     $smtp->send(
         starttls => 1,
