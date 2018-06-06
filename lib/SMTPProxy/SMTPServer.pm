@@ -4,7 +4,7 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 
-has [qw(address port log tls_cert tls_key service_name)];
+has [qw(address port log tls_cert tls_key service_name require_starttls require_auth)];
 
 sub start {
     my ($self, $callback) = @_;
@@ -47,7 +47,9 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
         port => 1234,
         tls_cert => 'path/to/server.crt',
         tls_key => 'path/to/server.key',
-        service_name => 'host.to.use.in.greeting.com'
+        service_name => 'host.to.use.in.greeting.com',
+        require_starttls => 1,
+        require_auth => 1,
     );
     $server->start(sub {
         my $connection = shift;

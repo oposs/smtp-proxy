@@ -103,7 +103,8 @@ sub _processInitialEhlo {
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->stream->write(formatReply(250,
             $self->server->service_name . ' offers a warm hug of welcome',
-            'STARTTLS'));
+            'STARTTLS',
+            ($self->server->require_starttls ? () : 'AUTH PLAIN')));
         $self->{state} = WANT_STARTTLS;
     }
     else {
@@ -138,8 +139,12 @@ sub _processStartTLS {
             $self->log->debug("Starting TLS upgrade for " . $self->clientAddress);
         });
     }
-    else {
+    elsif ($self->server->require_starttls) {
         $self->stream->write(formatReply(530, 'Must issue a STARTTLS command first'));
+    }
+    else {
+        $self->{state} = WANT_AUTH;
+        $self->_processAuth($command);
     }
 }
 
@@ -194,8 +199,12 @@ sub _processAuth {
             $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
         }
     }
-    else {
+    elsif ($self->server->require_auth) {
         $self->stream->write(formatReply(530, 'Authentication required'));
+    }
+    else {
+        $self->{state} = WANT_MAIL;
+        $self->_processMail($command);
     }
 }
 
