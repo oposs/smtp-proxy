@@ -61,7 +61,19 @@ sub run {
             });
             $bodyPromise->then(sub {
                 $collected{body} = shift;
-                $self->_relayMail($result, %collected);
+                $apiResult
+                    ->then(sub {
+                        my $outcome = shift;
+                        if ($outcome->{allow}) {
+                            $self->_relayMail($result, %collected);
+                        }
+                        else {
+                            $result->reject($outcome->{reason});
+                        }
+                    })
+                    ->catch(sub {
+                        $result->reject('authentication service failed');
+                    });
             });
             return $result;
         });

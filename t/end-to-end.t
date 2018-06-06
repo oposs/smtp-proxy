@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 11;
+plan tests => 14;
 
 # Test infrastructure
 
@@ -104,7 +104,7 @@ sub runOneTestCase {
 
 # Tests
 
-runTestCases(\&allowedSimple);
+runTestCases(\&allowedSimple, \&denied);
 
 sub allowedSimple {
     my $done = shift;
@@ -175,6 +175,44 @@ sub allowedSimple {
                 ],
                 'Correct headers sent to API';
 
+            $done->();
+        }
+    );
+}
+
+sub denied {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 0,
+        reason => 'bad username or password'
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fuser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => 'another@foobaz.com',
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok($resp->error, 'Mail not accepted by proxy');
+            like $resp->error, qr/bad username or password/,
+                'Error text returned from API is sent onwards';
+            ok !defined($toSMTPServerSent{from}), 'Did not relay mail';
             $done->();
         }
     );
