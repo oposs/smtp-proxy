@@ -84,6 +84,17 @@ sub run {
             %collected = ();
         });
     });
+    $self->_dropPrivs if $self->user;
+}
+
+sub _dropPrivs {
+    my $self = shift;
+    my $user = $self->user;
+    my ($uid, $gid) = (getpwnam $user)[2, 3];
+    die "Cannot resolve username '$user': $!" unless $uid && $gid;
+    POSIX::setgid($gid) or die "Failed to setgid to $gid: $!";
+    POSIX::setuid($uid) or die "Failed to setuid to $uid: $!";
+    $self->log->info("Dropped privileges to user $user");
 }
 
 sub _callAPI {
