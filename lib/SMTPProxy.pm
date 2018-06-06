@@ -65,13 +65,20 @@ sub run {
                     ->then(sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
-                            $self->_relayMail($result, $outcome->{headers}, %collected);
+                            $self->_relayMail($result, $connection,
+                                $outcome->{headers}, %collected);
                         }
                         else {
-                            $result->reject($outcome->{reason});
+                            my $reason = $outcome->{reason};
+                            $self->log->info("Mail rejected by API ($reason) for " .
+                                $connection->clientAddress);
+                            $result->reject($reason);
                         }
                     })
                     ->catch(sub {
+                        my $error = shift;
+                        $self->log->warn("Failed to call API ($error) for " .
+                            $connection->clientAddress);
                         $result->reject('authentication service failed');
                     });
             });
@@ -99,6 +106,7 @@ sub _dropPrivs {
 
 sub _callAPI {
     my ($self, %collected) = @_;
+    $self->log->debug('Making call to auth/headers API');
     my @headers = map {
         /^(.+):\s*(.+)$/;
         { name => $1, value => $2 }
@@ -113,7 +121,7 @@ sub _callAPI {
 }
 
 sub _relayMail {
-    my ($self, $resultPromise, $addHeaders, %mail) = @_;
+    my ($self, $resultPromise, $connection, $addHeaders, %mail) = @_;
     my $extraHeaders = join '',
         map { $_->{name} . ': ' . $_->{value} . "\r\n" } @$addHeaders;
     my $smtp = Mojo::SMTP::Client->new(
@@ -128,10 +136,15 @@ sub _relayMail {
         quit     => 1,
         sub {
             my ($smtp, $resp) = @_;
-            if ($resp->error) {
-                $resultPromise->reject($resp->error);
+            my $error = $resp->error;
+            if ($error) {
+                $self->log->info("Mail refused by relay server ($error) for " .
+                    $connection->clientAddress);
+                $resultPromise->reject($error);
             }
             else {
+                $self->log->info('Relayed mail successfully for ' .
+                    $connection->clientAddress);
                 $resultPromise->resolve;
             }
         });
