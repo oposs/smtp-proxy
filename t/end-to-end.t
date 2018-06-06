@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 14;
+plan tests => 16;
 
 # Test infrastructure
 
@@ -104,7 +104,7 @@ sub runOneTestCase {
 
 # Tests
 
-runTestCases(\&allowedSimple, \&denied);
+runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders);
 
 sub allowedSimple {
     my $done = shift;
@@ -213,6 +213,53 @@ sub denied {
             like $resp->error, qr/bad username or password/,
                 'Error text returned from API is sent onwards';
             ok !defined($toSMTPServerSent{from}), 'Did not relay mail';
+            $done->();
+        }
+    );
+}
+
+sub allowedInsertHeaders {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => [
+            { name => 'Sender', value => 'sender@foobar.com' },
+            { name => 'X-Parrot', value => 'Norwegian blue' },
+        ]
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Allowed mail accepted by proxy');
+            my $expectedHeaders = join "\r\n",
+                'Subject: Some message subject',
+                'From: from@foobar.com',
+                'To: another@foobaz.com',
+                'Sender: sender@foobar.com',
+                'X-Parrot: Norwegian blue',
+                '';
+            is $toSMTPServerSent{headers}, $expectedHeaders,
+                'Headers relayed include those added by the API';
             $done->();
         }
     );
