@@ -83,9 +83,6 @@ sub run {
         $connection->rset(sub {
             %collected = ();
         });
-        $connection->quit(sub {
-            # XXX
-        });
     });
 }
 
