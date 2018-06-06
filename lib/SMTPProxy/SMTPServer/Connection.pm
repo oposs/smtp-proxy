@@ -321,6 +321,7 @@ sub _processData {
 
                 # Otherwise, it's just a line to collected.
                 else {
+                    $line =~ s/^\.//g;
                     $handled .= $line;
                 }
             }

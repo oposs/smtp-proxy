@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 19;
+plan tests => 21;
 
 # Test infrastructure
 
@@ -108,7 +108,7 @@ sub runOneTestCase {
 
 # Tests
 
-runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError);
+runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError, \&transparency);
 
 sub allowedSimple {
     my $done = shift;
@@ -305,6 +305,49 @@ sub relayError {
                 'Really did try to call relay server';
             like $resp->error, qr/Sorry, I don't send from there/,
                 'Error text returned from relay server is sent onwards';
+            $done->();
+        }
+    );
+}
+
+sub transparency {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => []
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text before . line',
+                        '.',
+                        'More message text after . line'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Mail with lone . line in body accepted by proxy');
+            my $expectedBody = join "\r\n",
+                'Some message text before . line',
+                '.',
+                'More message text after . line',
+                '';
+            is $toSMTPServerSent{body}, $expectedBody,
+                'Body with a line . line correctly relayed';
             $done->();
         }
     );
