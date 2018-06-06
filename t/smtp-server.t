@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use v5.16;
 
+use Mojo::IOLoop::Server;
 use Mojo::Log;
 use Mojo::Promise;
 use Mojo::SMTP::Client;
@@ -15,7 +16,7 @@ use Test::Exception;
 plan tests => 16;
 
 my $TEST_HOST = '127.0.0.1';
-my $TEST_PORT = 42349;
+my $TEST_PORT = Mojo::IOLoop::Server->generate_port;
 
 my $server = SMTPProxy::SMTPServer->new(
     log => Mojo::Log->new(level => 'warn'),
