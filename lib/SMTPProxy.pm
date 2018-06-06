@@ -2,12 +2,96 @@ package SMTPProxy;
 
 use Mojo::Base -base;
 use Mojo::Log;
+use Mojo::Promise;
 use SMTPProxy::SMTPServer;
 
 has [qw(listenhost listenport tohost toport user tls_cert tls_key api service_name)];
 
-sub setup {
-    say "todo";
+has log => sub {
+    my $self = shift;
+    Mojo::Log->new(
+        path => $self->{logpath} || '/dev/stderr',
+        level => $self->{loglevel} || 'debug',
+    );
+};
+
+sub run {
+    my $self = shift;
+    my $server = SMTPProxy::SMTPServer->new(
+        log => $self->log,
+        address => $self->listenhost,
+        port => $self->listenport,
+        tls_cert => $self->tls_cert,
+        tls_key => $self->tls_key,
+        service_name => $self->service_name || $self->listenhost,
+        require_starttls => 1,
+        require_auth => 1,
+    );
+    $server->start(sub {
+        my $connection = shift;
+
+        # State the proxy collects to send to the API and target mail
+        # server.
+        my %collected;
+
+        $connection->auth_plain(sub {
+            my ($authzid, $authcid, $password) = @_;
+            $collected{username} = $authcid;
+            $collected{password} = $password;
+            return Mojo::Promise->new->resolve;
+        });
+        $connection->mail(sub {
+            my ($from, $parameters) = @_;
+            $collected{from} = $from;
+            return Mojo::Promise->new->resolve;
+        });
+        $connection->rcpt(sub {
+            my ($to, $parameters) = @_;
+            push @{$collected{to} //= []}, $to;
+            return Mojo::Promise->new->resolve;
+        });
+        $connection->data(sub {
+            my ($headersPromise, $bodyPromise) = @_;
+            my $result = Mojo::Promise->new;
+            $headersPromise->then(sub {
+                my $headers = shift;
+                $collected{headers} = $headers;
+                $headers = shift;
+            });
+            $bodyPromise->then(sub {
+                $collected{body} = shift;
+                $self->_relayMail($result, %collected);
+            });
+            return $result;
+        });
+        $connection->vrfy(sub {
+            return Mojo::Promise->new->reject('Unimplemented');
+        });
+        $connection->rset(sub {
+            %collected = ();
+        });
+        $connection->quit(sub {
+            # XXX
+        });
+    });
+}
+
+sub _relayMail {
+    my ($self, $resultPromise, %mail) = @_;
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $self->tohost,
+        port => $self->toport,
+        autodie => 1,
+    );
+    $smtp->send(
+        from     => $mail{from},
+        to       => $mail{to},
+        data     => $mail{headers} . "\r\n" . $mail{body},
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            $resultPromise->resolve;
+        });
 }
 
 1;
@@ -31,7 +115,7 @@ SMTPProxy - SMTP proxy using an API to authenticate and inject headers
         # TLS cert and key files so we can do STARTTLS
         tls_cert => ...,
         tls_key => ...,
-        # Object that calls to the API asynchronously
+        # Object that calls to the auth/headers API asynchronously
         api => ...,
         # Optionally, the user to run as (dropped to after port binding)
         user => ...,
@@ -42,6 +126,10 @@ SMTPProxy - SMTP proxy using an API to authenticate and inject headers
     $proxy->run;
 
 =head1 ATTRIBUTES
+
+=head2 log
+
+The C<Mojo::Log> object to use for logging.
 
 =head2 listenhost
 
