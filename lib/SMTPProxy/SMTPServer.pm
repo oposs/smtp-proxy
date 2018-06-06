@@ -41,7 +41,7 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
 =head1 SYNOPSIS
 
     use SMTPProxy::SMTPServer;
-    my $server = SMTPProxy->new(
+    my $server = SMTPProxy::SMTPServer->new(
         log => $some-mojo-log-object,
         address => '0.0.0.0',
         port => 1234,
