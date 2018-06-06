@@ -238,8 +238,9 @@ sub _processMail {
             $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
             $self->{state} = WANT_RCPT;
         })->catch(sub {
+            my $error = shift;
             $self->stream->write(formatReply(553,
-                'Requested action not taken: mailbox name not allowed'));
+                'Requested action not taken: ' . $error));
             $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
         });
     }
@@ -257,8 +258,9 @@ sub _processRcpt {
             $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
             $self->{state} = WANT_DATA;
         })->catch(sub {
+            my $error = shift;
             $self->stream->write(formatReply(550,
-                'Will not send mail to this user'));
+                'Will not send mail to this user: ' . $error));
             $self->log->debug('RCPT command rejected for ' . $self->clientAddress);
         });
     }

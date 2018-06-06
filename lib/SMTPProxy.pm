@@ -120,7 +120,12 @@ sub _relayMail {
         quit     => 1,
         sub {
             my ($smtp, $resp) = @_;
-            $resultPromise->resolve;
+            if ($resp->error) {
+                $resultPromise->reject($resp->error);
+            }
+            else {
+                $resultPromise->resolve;
+            }
         });
 }
 

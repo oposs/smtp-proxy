@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 16;
+plan tests => 19;
 
 # Test infrastructure
 
@@ -24,6 +24,7 @@ my $TEST_LOG = Mojo::Log->new(level => 'warn');
 
 my $testApi = FakeAPI->new;
 my %toSMTPServerSent;
+my $fakeServerError;
 sub setupTestSMTPTarget {
     my $server = SMTPProxy::SMTPServer->new(
         log => $TEST_LOG,
@@ -43,7 +44,9 @@ sub setupTestSMTPTarget {
         $connection->mail(sub {
             my ($from, $parameters) = @_;
             $toSMTPServerSent{from} = $from;
-            return Mojo::Promise->new->resolve;
+            return $fakeServerError
+                ? Mojo::Promise->new->reject($fakeServerError)
+                : Mojo::Promise->new->resolve;
         });
         $connection->rcpt(sub {
             my ($to, $parameters) = @_;
@@ -97,6 +100,7 @@ sub runOneTestCase {
     my ($test, @rest) = @_;
     %toSMTPServerSent = ();
     $testApi->clear();
+    $fakeServerError = '';
     $test->(@rest
         ? sub { runOneTestCase(@rest) }
         : sub { Mojo::IOLoop->stop });
@@ -104,7 +108,7 @@ sub runOneTestCase {
 
 # Tests
 
-runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders);
+runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError);
 
 sub allowedSimple {
     my $done = shift;
@@ -260,6 +264,47 @@ sub allowedInsertHeaders {
                 '';
             is $toSMTPServerSent{headers}, $expectedHeaders,
                 'Headers relayed include those added by the API';
+            $done->();
+        }
+    );
+}
+
+sub relayError {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => []
+    });
+    $fakeServerError = "Sorry, I don't send from there";
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com', 'brother@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        'Cc: brother@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok($resp->error, 'Mail did not send due to relay server rejection');
+            is $toSMTPServerSent{from}, 'sender@foobar.com',
+                'Really did try to call relay server';
+            like $resp->error, qr/Sorry, I don't send from there/,
+                'Error text returned from relay server is sent onwards';
             $done->();
         }
     );
