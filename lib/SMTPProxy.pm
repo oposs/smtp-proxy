@@ -53,10 +53,11 @@ sub run {
         $connection->data(sub {
             my ($headersPromise, $bodyPromise) = @_;
             my $result = Mojo::Promise->new;
+            my $apiResult;
             $headersPromise->then(sub {
                 my $headers = shift;
                 $collected{headers} = $headers;
-                $headers = shift;
+                $apiResult = $self->_callAPI(%collected);
             });
             $bodyPromise->then(sub {
                 $collected{body} = shift;
@@ -74,6 +75,21 @@ sub run {
             # XXX
         });
     });
+}
+
+sub _callAPI {
+    my ($self, %collected) = @_;
+    my @headers = map {
+        /^(.+):\s*(.+)$/;
+        { name => $1, value => $2 }
+    } split /\r\n/, $collected{headers};
+    return $self->api->check(
+        username => $collected{username},
+        password => $collected{password},
+        from => $collected{from},
+        to => $collected{to},
+        headers => \@headers
+    );
 }
 
 sub _relayMail {
@@ -169,7 +185,7 @@ An object having a method `check`, which will be called like this:
             ...
         ])
 
-And will return a Promise that will resolve to an hash like either:
+And will return a C<Mojo::Promise> that will resolve to an hash like either:
 
     {
         allow => 0,

@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 5;
+plan tests => 11;
 
 # Test infrastructure
 
@@ -157,6 +157,23 @@ sub allowedSimple {
                 '';
             is $toSMTPServerSent{body}, $expectedBody,
                 'Body correctly relayed';
+
+            my @calls = @{$testApi->calledWith};
+            is scalar(@calls), 1, 'Made a single call to the API';
+            is $calls[0]->{username}, 'fooser', 'Correct username sent to API';
+            is $calls[0]->{password}, 's3cr3t', 'Correct password sent to API';
+            is $calls[0]->{from}, 'sender@foobar.com', 'Correct to sent to API';
+            is_deeply $calls[0]->{to},
+                ['another@foobaz.com', 'brother@foobaz.com'],
+                'Correct to sent to API';
+            is_deeply $calls[0]->{headers},
+                [
+                    { name => 'Subject', value => 'Some message subject' },
+                    { name => 'From', value => 'from@foobar.com' },
+                    { name => 'To', value => 'another@foobaz.com' },
+                    { name => 'Cc', value => 'brother@foobaz.com' },
+                ],
+                'Correct headers sent to API';
 
             $done->();
         }
