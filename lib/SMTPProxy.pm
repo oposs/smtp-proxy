@@ -228,7 +228,7 @@ An object having a method `check`, which will be called like this:
             ...
         ])
 
-And will return a C<Mojo::Promise> that will resolve to an hash like either:
+And will return a C<Mojo::Promise> that will resolve to a hashref like either:
 
     {
         allow => 0,
