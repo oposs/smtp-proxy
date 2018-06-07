@@ -109,6 +109,15 @@ sub _processCommand {
             $self->stream->write(formatReply(553, 'User ambiguous'));
         }
     }
+    elsif ($commandName eq 'RSET') {
+        my $callback = $self->rset;
+        $self->log->debug("Processing RSET for " . $self->clientAddress);
+        $callback->() if $callback;
+        if ($self->{state} > WANT_MAIL) {
+            $self->{state} = WANT_MAIL;
+        }
+        $self->stream->write(formatReply(250, 'OK'));
+    }
     else {
         # Go by state.
         my $methodName = @STATE_METHODS[$self->{state}];

@@ -13,7 +13,7 @@ use SMTPProxy::SMTPServer;
 use Test::More;
 use Test::Exception;
 
-plan tests => 16;
+plan tests => 17;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = Mojo::IOLoop::Server->generate_port;
@@ -36,6 +36,9 @@ $server->setup(sub {
         is $authcid, 'fooser', 'Correct authcid passed to auth callback';
         is $password, 's3cr3t', 'Correct password passed to auth callback';
         return Mojo::Promise->new->resolve;
+    });
+    $connection->rset(sub {
+        pass "Reset callback was called";
     });
     $connection->mail(sub {
         my ($from, $parameters) = @_;
@@ -99,6 +102,7 @@ sub makeTestConnection {
     $smtp->send(
         starttls => 1,
         auth     => {login => 'fooser', password => 's3cr3t'},
+        reset    => 1,
         from     => 'sender@foobar.com',
         to       => ['another@foobaz.com', 'brother@foobaz.com'],
         data     => join("\r\n",

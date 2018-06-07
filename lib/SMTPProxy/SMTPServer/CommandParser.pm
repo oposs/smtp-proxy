@@ -22,7 +22,8 @@ sub parseCommand {
         elsif ($command eq 'PING') {
             $parsed->{text} = $arguments;
         }
-        elsif ($command eq 'QUIT' || $command eq 'STARTTLS' || $command eq 'DATA') {
+        elsif ($command eq 'QUIT' || $command eq 'STARTTLS' || $command eq 'DATA' ||
+               $command eq 'RSET') {
             if ($arguments) {
                 $parsed->{error} = 'no arguments allowed';
                 $parsed->{suggested_reply} = 501;
