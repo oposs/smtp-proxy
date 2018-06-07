@@ -11,7 +11,7 @@ use SMTPProxy::API;
 
 sub main {
     my $opt = {};
-    my @mandatory = qw(tohost=s toport=i listenhost=s listenport=i tls_cert=s tls_key=s);
+    my @mandatory = qw(tohost=s toport=i listenhost=s listenport=i tls_cert=s tls_key=s api=s);
     GetOptions($opt, 'user=s', 'logpath=s','loglevel=s', 'help|h', 'man', @mandatory)
         or pod2usage(1);
     if ($opt->{help}) {
@@ -20,7 +20,7 @@ sub main {
     if ($opt->{man}) {
         pod2usage(-exitstatus => 0, -verbose => 2);
     }
-    for (qw(tohost toport listenhost listenport tls_cert tls_key)) {
+    for (map { /^(\w+)/; $1 } @mandatory) {
         pod2usage() unless $opt->{$_};
     }
 
@@ -28,7 +28,7 @@ sub main {
         path => $opt->{logpath} || '/dev/stderr',
         level => $opt->{loglevel} || 'debug',
     );
-    my $api = SMTPProxy::API->new(log => $log, url => 'http://localhost:20000/');
+    my $api = SMTPProxy::API->new(log => $log, url => $opt->{api});
     my $proxy = SMTPProxy->new(%$opt, api => $api);
     say "Waiting for connections on ". $proxy->listenhost . ':'. $proxy->listenport;
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
@@ -56,6 +56,7 @@ B<smtpproxy.pl> I<options>
     --toport=x      port of the SMTP server to proxy to
     --tls_cert=x    file containing a TLS certificate (for STARTTLS)
     --tls_key=x     file containing a TLS key (for STARTTLS)
+    --api=x         URL of the authentication API
     --logpath=x     where should the logfile be written to
     --loglevel=x    debug|info|warn|error|fatal
 
