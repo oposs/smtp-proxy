@@ -109,9 +109,9 @@ sub _callAPI {
     my ($self, %collected) = @_;
     $self->log->debug('Making call to auth/headers API');
     my @headers = map {
-        /^(.+):\s*(.+)$/;
+        /^([^:]+):\s*(.+)$/s;
         { name => $1, value => $2 }
-    } split /\r\n/, $collected{headers};
+    } split /\r\n(?=$|\S)/, $collected{headers};
     return $self->api->check(
         username => $collected{username},
         password => $collected{password},
