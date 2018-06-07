@@ -28,7 +28,7 @@ sub setup {
         require_starttls => 1,
         require_auth => 1,
     );
-    $server->start(sub {
+    $server->setup(sub {
         my $connection = shift;
 
         # State the proxy collects to send to the API and target mail

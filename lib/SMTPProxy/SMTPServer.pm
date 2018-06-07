@@ -6,7 +6,7 @@ use SMTPProxy::SMTPServer::Connection;
 
 has [qw(address port log tls_cert tls_key service_name require_starttls require_auth)];
 
-sub start {
+sub setup {
     my ($self, $callback) = @_;
     Mojo::IOLoop->server(
         { address => $self->address, port => $self->port },
@@ -51,7 +51,7 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
         require_starttls => 1,
         require_auth => 1,
     );
-    $server->start(sub {
+    $server->setup(sub {
         my $connection = shift;
         $connection->auth_plain(sub {
             my ($authzid, $authcid, $password) = @_;
@@ -122,6 +122,11 @@ The server key for use with StartTLS.
 The name of the service, to be used in the handshake.
 
 =head1 METHODS
+
+=head2 setup()
+
+Sets up the SMTP server. Relies on the caller to start (or have started) the
+C<Mojo::IOLoop>.
 
 =head1 COPYRIGHT
 

@@ -27,7 +27,7 @@ my $server = SMTPProxy::SMTPServer->new(
     tls_key => "$FindBin::Bin/certs-and-keys/server.key",
     service_name => 'test.service.name',
 );
-$server->start(sub {
+$server->setup(sub {
     my $connection = shift;
     isa_ok $connection, 'SMTPProxy::SMTPServer::Connection';
     $connection->auth_plain(sub {

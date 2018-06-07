@@ -34,7 +34,7 @@ sub setupTestSMTPTarget {
         require_starttls => 0,
         require_auth => 0,
     );
-    $server->start(sub {
+    $server->setup(sub {
         my $connection = shift;
         $connection->auth_plain(sub {
             my ($authzid, $authcid, $password) = @_;
