@@ -79,9 +79,10 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
                 # Promise in order to accept (or reject it to deny sending).
                 $result->resolve;
             });
+            return $result;
         });
         $connection->vrfy(sub {
-            return Mojo::Promise->new->reject(553, 'User ambiguous');
+            return Mojo::Promise->new->reject('User ambiguous');
         });
         $connection->rset(sub {
             # Nothing async happens here, so return value ignored
@@ -103,7 +104,7 @@ Port for the server to listen on.
 
 =head2 log
 
-An instance of Mojo::Log or something with an equivalent API, for logging.
+An instance of C<Mojo::Log> or something with an equivalent API, for logging.
 
 =head2 tls_ca
 
@@ -120,6 +121,14 @@ The server key for use with StartTLS.
 =head2 service_name
 
 The name of the service, to be used in the handshake.
+
+=head2 require_starttls
+
+Whether to enforce STARTTLS is used.
+
+=head2 require_auth
+
+Whether to enforce that authentication takes place.
 
 =head1 METHODS
 
