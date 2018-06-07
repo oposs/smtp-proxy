@@ -32,7 +32,7 @@ sub main {
     my $proxy = SMTPProxy->new(%$opt, api => $api);
     say "Waiting for connections on ". $proxy->listenhost . ':'. $proxy->listenport;
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
-    $proxy->run();
+    $proxy->setup();
     Mojo::IOLoop->start();
 }
 

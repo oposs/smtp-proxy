@@ -16,7 +16,7 @@ has log => sub {
     );
 };
 
-sub run {
+sub setup {
     my $self = shift;
     my $server = SMTPProxy::SMTPServer->new(
         log => $self->log,

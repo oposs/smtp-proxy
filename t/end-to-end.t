@@ -83,7 +83,7 @@ sub setupProxy {
         api => $testApi,
         service_name => 'smtp.proxy.service'
     );
-    $proxy->run;
+    $proxy->setup;
 }
 
 sub runTestCases {
