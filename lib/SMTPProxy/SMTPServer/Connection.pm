@@ -79,7 +79,7 @@ sub _processCommand {
     my ($self, $command) = @_;
     my $commandName = $command->{command};
 
-    # QUIT and NOOP are valid in any state.
+    # QUIT, NOOP, and VRFY are valid in any state.
     if ($commandName eq 'QUIT') {
         my $callback = $self->quit;
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
@@ -342,7 +342,7 @@ sub _processData {
                     $headersDone = 1;
                 }
 
-                # Otherwise, it's just a line to collected.
+                # Otherwise, it's just a line to collect.
                 else {
                     $line =~ s/^\.//g;
                     $handled .= $line;
