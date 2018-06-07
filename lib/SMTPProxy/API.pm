@@ -3,14 +3,30 @@ package SMTPProxy::API;
 use Mojo::Base -base;
 use Mojo::JSON;
 use Mojo::Promise;
+use Mojo::UserAgent;
 
 has [qw(log url)];
+
+has ua => sub { Mojo::UserAgent->new };
 
 sub check {
     my ($self, %args) = @_;
     my $outcome = Mojo::Promise->new;
-    # TODO Actually call the API
-    return $outcome->resolve({ allow => Mojo::JSON::true, headers => [] });
+    eval {
+        $self->ua->post($self->url, json => \%args, sub {
+            my ($ua, $tx) = @_;
+            if ($tx->success) {
+                $outcome->resolve($tx->result->json);
+            }
+            else {
+                $outcome->reject($tx->error->{message});
+            }
+        });
+    };
+    if ($@) {
+        $outcome->reject($@);
+    }
+    return $outcome;
 }
 
 1;

@@ -28,7 +28,7 @@ sub main {
         path => $opt->{logpath} || '/dev/stderr',
         level => $opt->{loglevel} || 'debug',
     );
-    my $api = SMTPProxy::API->new(log => $log, url => 'https://fix.me/');
+    my $api = SMTPProxy::API->new(log => $log, url => 'http://localhost:20000/');
     my $proxy = SMTPProxy->new(%$opt, api => $api);
     say "Waiting for connections on ". $proxy->listenhost . ':'. $proxy->listenport;
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
