@@ -82,12 +82,14 @@ sub _processCommand {
     # QUIT and NOOP are valid in any state.
     if ($commandName eq 'QUIT') {
         my $callback = $self->quit;
+        $self->log->debug("Processing QUIT for " . $self->clientAddress);
         $callback->() if $callback;
         $self->stream->write(
             formatReply(221, $self->server->service_name . 'Service closing transmission channel'),
             sub { Mojo::IOLoop->remove($self->id) });
     }
     elsif ($commandName eq 'NOOP') {
+        $self->log->debug("Processing NOOP for " . $self->clientAddress);
         $self->stream->write(formatReply(250, 'OK'));
     }
     elsif ($commandName eq 'VRFY') {
@@ -189,6 +191,7 @@ sub _processAuth {
     my $commandName = $command->{command};
     if ($commandName eq 'AUTH') {
         if ($command->{mechanism} eq 'PLAIN') {
+            $self->log->debug("Processing AUTH PLAIN for " . $self->clientAddress);
             if ($command->{initial}) {
                 $self->_makeAuthPlainCallback($command->{initial});
             }
@@ -213,10 +216,13 @@ sub _processAuth {
             }
         }
         else {
+            $self->log->debug("Unsupported AUTH mechanism " . $command->{mechanism}.
+                " used by " . $self->clientAddress);
             $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
         }
     }
     elsif ($self->server->require_auth) {
+        $self->log->debug("Authentication required sent to " . $self->clientAddress);
         $self->stream->write(formatReply(530, 'Authentication required'));
     }
     else {
