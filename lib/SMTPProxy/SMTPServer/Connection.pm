@@ -98,12 +98,13 @@ sub _processCommand {
         if ($callback) {
             say "in verify handler";
             $callback->($command->{string})
-                ->then(sub {
-                    $self->stream->write(formatReply(250, @_));
-                })
-                ->catch(sub {
-                    $self->stream->write(formatReply(553, @_));
-                });
+                ->then(
+                    sub {
+                        $self->stream->write(formatReply(250, @_));
+                    },
+                    sub {
+                        $self->stream->write(formatReply(553, @_));
+                    });
         }
         else {
             $self->stream->write(formatReply(553, 'User ambiguous'));
@@ -246,14 +247,16 @@ sub _makeAuthPlainCallback {
     my $authCallback = $self->auth_plain;
     if ($authCallback) {
         my $promise = $authCallback->(@args);
-        $promise->then(sub {
-            $self->stream->write(formatReply(235, 'Authentication successful'));
-            $self->log->debug('Successfully authenticated ' . $self->clientAddress);
-            $self->{state} = WANT_MAIL;
-        })->catch(sub {
-            $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
-            $self->log->debug('Authentication failed for ' . $self->clientAddress);
-        });
+        $promise->then(
+            sub {
+                $self->stream->write(formatReply(235, 'Authentication successful'));
+                $self->log->debug('Successfully authenticated ' . $self->clientAddress);
+                $self->{state} = WANT_MAIL;
+            },
+            sub {
+                $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
+                $self->log->debug('Authentication failed for ' . $self->clientAddress);
+            });
     }
     else {
         $self->log->warn('AUTH used but no auth callback set');
@@ -265,16 +268,18 @@ sub _processMail {
     my ($self, $command) = @_;
     if ($command->{command} eq 'MAIL') {
         my $promise = $self->mail->($command->{from}, $command->{parameters});
-        $promise->then(sub {
-            $self->stream->write(formatReply(250, 'OK'));
-            $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
-            $self->{state} = WANT_RCPT;
-        })->catch(sub {
-            my $error = shift;
-            $self->stream->write(formatReply(553,
-                'Requested action not taken: ' . $error));
-            $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
-        });
+        $promise->then(
+            sub {
+                $self->stream->write(formatReply(250, 'OK'));
+                $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
+                $self->{state} = WANT_RCPT;
+            },
+            sub {
+                my $error = shift;
+                $self->stream->write(formatReply(553,
+                    'Requested action not taken: ' . $error));
+                $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
+            });
     }
     else {
         $self->stream->write(formatReply(503, 'Bad sequence of commands'));
@@ -285,16 +290,18 @@ sub _processRcpt {
     my ($self, $command) = @_;
     if ($command->{command} eq 'RCPT') {
         my $promise = $self->rcpt->($command->{to}, $command->{parameters});
-        $promise->then(sub {
-            $self->stream->write(formatReply(250, 'OK'));
-            $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
-            $self->{state} = WANT_DATA;
-        })->catch(sub {
-            my $error = shift;
-            $self->stream->write(formatReply(550,
-                'Will not send mail to this user: ' . $error));
-            $self->log->debug('RCPT command rejected for ' . $self->clientAddress);
-        });
+        $promise->then(
+            sub {
+                $self->stream->write(formatReply(250, 'OK'));
+                $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
+                $self->{state} = WANT_DATA;
+            },
+            sub {
+                my $error = shift;
+                $self->stream->write(formatReply(550,
+                    'Will not send mail to this user: ' . $error));
+                $self->log->debug('RCPT command rejected for ' . $self->clientAddress);
+            });
     }
     else {
         $self->stream->write(formatReply(503, 'Bad sequence of commands'));
@@ -329,13 +336,13 @@ sub _processData {
                         $bodyPromise->resolve($handled);
                     }
                     $self->{dataEater} = '';
-                    $promise
-                        ->then(sub {
+                    $promise->then(
+                        sub {
                             $self->stream->write(formatReply(250, 'OK'));
                             $self->{state} = WANT_MAIL;
                             $self->log->debug('Accepted MAIL command for ' . $self->clientAddress);
-                        })
-                        ->catch(sub {
+                        },
+                        sub {
                             my $message = shift;
                             $self->stream->write(formatReply(550, $message // ''));
                             $self->log->debug('MAIL command rejected for ' . $self->clientAddress);

@@ -62,8 +62,8 @@ sub setup {
             });
             $bodyPromise->then(sub {
                 $collected{body} = shift;
-                $apiResult
-                    ->then(sub {
+                $apiResult->then(
+                    sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
                             $self->_relayMail($result, $connection,
@@ -75,8 +75,8 @@ sub setup {
                                 $connection->clientAddress);
                             $result->reject($reason);
                         }
-                    })
-                    ->catch(sub {
+                    },
+                    sub {
                         my $error = shift;
                         $self->log->warn("Failed to call API ($error) for " .
                             $connection->clientAddress);
