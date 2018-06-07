@@ -3,6 +3,7 @@ package SMTPProxy;
 use Mojo::Base -base;
 use Mojo::Log;
 use Mojo::Promise;
+use Mojo::SMTP::Client;
 use SMTPProxy::SMTPServer;
 
 has [qw(listenhost listenport tohost toport user tls_cert tls_key api service_name)];
