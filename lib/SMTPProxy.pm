@@ -160,8 +160,8 @@ SMTPProxy - SMTP proxy using an API to authenticate and inject headers
 
 =head1 SYNOPSIS
 
-    use SSLProxy;
-    my $proxy = SSLProxy->new(
+    use SMTPProxy;
+    my $proxy = SMTPProxy->new(
         # Where to start an SMTP server
         listenhost => ...,
         listenport => ...,
