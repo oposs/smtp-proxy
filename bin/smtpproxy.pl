@@ -7,6 +7,7 @@ use Getopt::Long 2.25 qw(:config posix_default no_ignore_case);
 use Mojo::Base -strict;
 use Pod::Usage 1.14;
 use SMTPProxy;
+use SMTPProxy::API;
 
 sub main {
     my $opt = {};
@@ -23,7 +24,12 @@ sub main {
         pod2usage() unless $opt->{$_};
     }
 
-    my $proxy = SMTPProxy->new(%$opt);
+    my $log = Mojo::Log->new(
+        path => $opt->{logpath} || '/dev/stderr',
+        level => $opt->{loglevel} || 'debug',
+    );
+    my $api = SMTPProxy::API->new(log => $log, url => 'https://fix.me/');
+    my $proxy = SMTPProxy->new(%$opt, api => $api);
     say "Waiting for connections on ". $proxy->listenhost . ':'. $proxy->listenport;
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
     $proxy->setup();

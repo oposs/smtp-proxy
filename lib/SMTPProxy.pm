@@ -178,6 +178,8 @@ SMTPProxy - SMTP proxy using an API to authenticate and inject headers
         # Optionally, the service name to use in the SMTP greeting (will
         # take listenhost as the default)
         service_name => ...,
+        # A log object
+        log => ...,
     );
     $proxy->run;
 
