@@ -90,6 +90,23 @@ sub _processCommand {
     elsif ($commandName eq 'NOOP') {
         $self->stream->write(formatReply(250, 'OK'));
     }
+    elsif ($commandName eq 'VRFY') {
+        my $callback = $self->vrfy;
+        $self->log->debug("Processing VRFY for " . $self->clientAddress);
+        if ($callback) {
+            say "in verify handler";
+            $callback->($command->{string})
+                ->then(sub {
+                    $self->stream->write(formatReply(250, @_));
+                })
+                ->catch(sub {
+                    $self->stream->write(formatReply(553, @_));
+                });
+        }
+        else {
+            $self->stream->write(formatReply(553, 'User ambiguous'));
+        }
+    }
     else {
         # Go by state.
         my $methodName = @STATE_METHODS[$self->{state}];

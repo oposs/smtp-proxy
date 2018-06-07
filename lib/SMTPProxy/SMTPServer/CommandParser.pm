@@ -82,6 +82,9 @@ sub parseCommand {
                 $parsed->{suggested_reply} = 501;
             }
         }
+        elsif ($command eq 'VRFY') {
+            $parsed->{string} = $arguments;
+        }
         else {
             $parsed->{error} = 'unknown command';
             $parsed->{suggested_reply} = 502;
