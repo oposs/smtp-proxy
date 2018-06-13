@@ -9,7 +9,7 @@ PERLTESTS := $(shell find t -name "*.t")
 
 THIRDPARTY_DIR := $(shell pwd)/thirdparty
 
-EXTRA_DIST = VERSION PERL_MODULES COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PERLTESTS) $(shell find corpus -type f)
+EXTRA_DIST = VERSION PERL_MODULES COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PERLTESTS)
 
 
 YEAR := $(shell date +%Y)
