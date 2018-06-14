@@ -1,6 +1,6 @@
 #  Copyright (C) 2017 Tobias Oetiker
 
-AC_INIT([ssl-proxy],m4_esyscmd([tr -d '\n' < VERSION]),[jonathan@oetiker.ch])
+AC_INIT([smtp-proxy],m4_esyscmd([tr -d '\n' < VERSION]),[jonathan@oetiker.ch])
 AC_PREREQ([2.59])
 AC_CONFIG_AUX_DIR(conftools)
 
