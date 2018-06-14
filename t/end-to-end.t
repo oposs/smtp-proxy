@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 24;
+plan tests => 26;
 
 # Test infrastructure
 
@@ -109,7 +109,7 @@ sub runOneTestCase {
 # Tests
 
 runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError,
-    \&transparency, \&allowedChangeFrom);
+    \&transparency, \&allowedChangeFrom, \&allowedChangeHeaders);
 
 sub allowedSimple {
     my $done = shift;
@@ -394,6 +394,57 @@ sub allowedChangeFrom {
                 '';
             is $toSMTPServerSent{headers}, $expectedHeaders,
                 'Headers left as is, as not returned by the API';
+            $done->();
+        }
+    );
+}
+
+sub allowedChangeHeaders {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => [
+            { name => 'X-GoAway', value => undef },
+            { name => 'X-ReplaceMe', value => 'a new header' },
+            { name => 'X-ReplaceMe', value => 'another new header' },
+        ]
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'X-GoAway: this will be removed',
+                        'X-ReplaceMe: this will be replaced',
+                        'X-ReplaceMe: this will also be replaced',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Allowed mail accepted by proxy');
+            my $expectedHeaders = join "\r\n",
+                'Subject: Some message subject',
+                'From: from@foobar.com',
+                'To: another@foobaz.com',
+                'X-ReplaceMe: a new header',
+                'X-ReplaceMe: another new header',
+                '';
+            is $toSMTPServerSent{headers}, $expectedHeaders,
+                'Headers removed/replaced as the API requested';
             $done->();
         }
     );

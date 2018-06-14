@@ -124,10 +124,22 @@ sub _callAPI {
 
 sub _relayMail {
     my ($self, $resultPromise, $connection, $apiResult, %mail) = @_;
-    my $addHeaders = $apiResult->{headers};
+
+    # We should:
+    # * Remove headers that the API headers result sets to undef/null
+    # * Replace headers tha the API headers result provides a value for
+    # * Add any new headers
+    # We roll all of these into two steps:
+    # 1. Remove all existing headers mentioned by the API result
+    # 2. Add all headers from the API result with a defined value
+    my @headers = @{$mail{headers}};
+    my @apiHeaders = @{$apiResult->{headers}};
+    my %toRemove = map { $_->{name} => 1 } @apiHeaders;
+    @headers = grep { not $toRemove{$_->{name}} } @headers;
+    push @headers, grep { defined $_->{value} } @apiHeaders;
+
     my $formattedHeaders = join '',
-        map { $_->{name} . ': ' . $_->{value} . "\r\n" }
-        @{$mail{headers}}, @$addHeaders;
+        map { $_->{name} . ': ' . $_->{value} . "\r\n" } @headers;
     my $smtp = Mojo::SMTP::Client->new(
         address => $self->tohost,
         port => $self->toport,
