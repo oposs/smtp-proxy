@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 21;
+plan tests => 24;
 
 # Test infrastructure
 
@@ -108,7 +108,8 @@ sub runOneTestCase {
 
 # Tests
 
-runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError, \&transparency);
+runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError,
+    \&transparency, \&allowedChangeFrom);
 
 sub allowedSimple {
     my $done = shift;
@@ -348,6 +349,51 @@ sub transparency {
                 '';
             is $toSMTPServerSent{body}, $expectedBody,
                 'Body with a line . line correctly relayed';
+            $done->();
+        }
+    );
+}
+
+sub allowedChangeFrom {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => [],
+        from => 'different@foobar.com'
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Allowed mail accepted by proxy');
+            is $toSMTPServerSent{from}, 'different@foobar.com',
+                'Mail used the replacement `from` returned by the API';
+            my $expectedHeaders = join "\r\n",
+                'Subject: Some message subject',
+                'From: from@foobar.com',
+                'To: another@foobaz.com',
+                '';
+            is $toSMTPServerSent{headers}, $expectedHeaders,
+                'Headers left as is, as not returned by the API';
             $done->();
         }
     );

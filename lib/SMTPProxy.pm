@@ -67,7 +67,7 @@ sub setup {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
                             $self->_relayMail($result, $connection,
-                                $outcome->{headers}, %collected);
+                                $outcome, %collected);
                         }
                         else {
                             my $reason = $outcome->{reason};
@@ -122,7 +122,8 @@ sub _callAPI {
 }
 
 sub _relayMail {
-    my ($self, $resultPromise, $connection, $addHeaders, %mail) = @_;
+    my ($self, $resultPromise, $connection, $apiResult, %mail) = @_;
+    my $addHeaders = $apiResult->{headers};
     my $extraHeaders = join '',
         map { $_->{name} . ': ' . $_->{value} . "\r\n" } @$addHeaders;
     my $smtp = Mojo::SMTP::Client->new(
@@ -131,7 +132,7 @@ sub _relayMail {
         autodie => 1,
     );
     $smtp->send(
-        from     => $mail{from},
+        from     => $apiResult->{from} || $mail{from},
         to       => $mail{to},
         data     => $mail{headers} . $extraHeaders . "\r\n" . $mail{body},
         quit     => 1,
