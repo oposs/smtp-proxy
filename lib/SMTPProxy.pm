@@ -127,7 +127,7 @@ sub _relayMail {
 
     # We should:
     # * Remove headers that the API headers result sets to undef/null
-    # * Replace headers tha the API headers result provides a value for
+    # * Replace headers that the API headers result provides a value for
     # * Add any new headers
     # We roll all of these into two steps:
     # 1. Remove all existing headers mentioned by the API result
