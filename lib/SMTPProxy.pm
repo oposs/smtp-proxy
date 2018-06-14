@@ -57,7 +57,12 @@ sub setup {
             my $apiResult;
             $headersPromise->then(sub {
                 my $headers = shift;
-                $collected{headers} = $headers;
+                $collected{headers} = [
+                    map {
+                        /^([^:]+):\s*(.+)$/s;
+                        { name => $1, value => $2 }
+                    } split /\r\n(?=$|\S)/, $headers
+                ];
                 $apiResult = $self->_callAPI(%collected);
             });
             $bodyPromise->then(sub {
@@ -108,24 +113,21 @@ sub _dropPrivs {
 sub _callAPI {
     my ($self, %collected) = @_;
     $self->log->debug('Making call to auth/headers API');
-    my @headers = map {
-        /^([^:]+):\s*(.+)$/s;
-        { name => $1, value => $2 }
-    } split /\r\n(?=$|\S)/, $collected{headers};
     return $self->api->check(
         username => $collected{username},
         password => $collected{password},
         from => $collected{from},
         to => $collected{to},
-        headers => \@headers
+        headers => $collected{headers}
     );
 }
 
 sub _relayMail {
     my ($self, $resultPromise, $connection, $apiResult, %mail) = @_;
     my $addHeaders = $apiResult->{headers};
-    my $extraHeaders = join '',
-        map { $_->{name} . ': ' . $_->{value} . "\r\n" } @$addHeaders;
+    my $formattedHeaders = join '',
+        map { $_->{name} . ': ' . $_->{value} . "\r\n" }
+        @{$mail{headers}}, @$addHeaders;
     my $smtp = Mojo::SMTP::Client->new(
         address => $self->tohost,
         port => $self->toport,
@@ -134,7 +136,7 @@ sub _relayMail {
     $smtp->send(
         from     => $apiResult->{from} || $mail{from},
         to       => $mail{to},
-        data     => $mail{headers} . $extraHeaders . "\r\n" . $mail{body},
+        data     => $formattedHeaders . "\r\n" . $mail{body},
         quit     => 1,
         sub {
             my ($smtp, $resp) = @_;
