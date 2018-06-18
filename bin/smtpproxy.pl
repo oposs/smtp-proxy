@@ -52,6 +52,7 @@ B<smtpproxy.pl> I<options>
  -h,--help          display this help and exit
     --listenhost=x  on which IP should we listen; use 0.0.0.0 to listen on all
     --listenport=x  on which port should we listen
+    --user=x        drop privileges and become this user after start
     --tohost=x      host of the SMTP server to proxy to
     --toport=x      port of the SMTP server to proxy to
     --tls_cert=x    file containing a TLS certificate (for STARTTLS)
