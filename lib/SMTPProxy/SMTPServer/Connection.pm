@@ -31,6 +31,16 @@ sub process {
     $self->stream->write(formatReply(220, $self->server->service_name . ' SMTP service ready'));
     $self->{state} = WANT_INITIAL_EHLO;
     $self->_startReader();
+    $self->_setupClose;
+}
+
+sub _setupClose {
+    my $self = shift;
+    $self->stream->on('close',
+        sub {
+            Mojo::IOLoop->remove($self->id);
+            %$self = ();
+        });
 }
 
 sub _startReader {
@@ -85,8 +95,7 @@ sub _processCommand {
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
         $callback->() if $callback;
         $self->stream->write(
-            formatReply(221, $self->server->service_name . 'Service closing transmission channel'),
-            sub { Mojo::IOLoop->remove($self->id) });
+            formatReply(221, $self->server->service_name . 'Service closing transmission channel'));
     }
     elsif ($commandName eq 'NOOP') {
         $self->log->debug("Processing NOOP for " . $self->clientAddress);
@@ -96,7 +105,6 @@ sub _processCommand {
         my $callback = $self->vrfy;
         $self->log->debug("Processing VRFY for " . $self->clientAddress);
         if ($callback) {
-            say "in verify handler";
             $callback->($command->{string})
                 ->then(
                     sub {
@@ -146,7 +154,7 @@ sub _processStartTLS {
     my $commandName = $command->{command};
     if ($commandName eq 'STARTTLS') {
         $self->stream->write(formatReply(220, 'Go ahead'), sub {
-            my $tls = Mojo::IOLoop::TLS->new($self->stream->steal_handle);
+            my $tls = Mojo::IOLoop::TLS->new($self->stream->handle);
             $tls->on(upgrade => sub {
                 my ($tls, $new_handle) = @_;
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
@@ -154,6 +162,7 @@ sub _processStartTLS {
                 $self->{state} = WANT_TLS_EHLO;
                 $self->_startReader();
                 $self->stream->start;
+                $self->_setupClose;
             });
             $tls->on(error => sub {
                 my ($tls, $err) = @_;
