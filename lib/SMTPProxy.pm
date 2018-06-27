@@ -59,8 +59,13 @@ sub setup {
                 my $headers = shift;
                 $collected{headers} = [
                     map {
-                        /^([^:]+):\s*(.+)$/s;
-                        { name => $1, value => $2 }
+                        if (/^([^:]+):\s*(.+)$/s) {
+                            { name => $1, value => $2 }
+                        }
+                        else {
+                            $self->log->warn("Could not parse header '$_'");
+                            ()
+                        }
                     } split /\r\n(?=$|\S)/, $headers
                 ];
                 $apiResult = $self->_callAPI(%collected);
