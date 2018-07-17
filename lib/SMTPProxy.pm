@@ -27,6 +27,7 @@ sub setup {
         service_name => $self->service_name || $self->listenhost,
         require_starttls => 1,
         require_auth => 1,
+        timeout => 0,
     );
     $server->setup(sub {
         my $connection = shift;
