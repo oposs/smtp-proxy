@@ -4,7 +4,7 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 
-has [qw(address port log tls_cert tls_key service_name require_starttls require_auth)];
+has [qw(address port log tls_cert tls_key service_name require_starttls require_auth timeout)];
 
 sub setup {
     my ($self, $callback) = @_;
@@ -13,6 +13,7 @@ sub setup {
         sub {
             my ($loop, $stream, $id) = @_;
 
+            $stream->timeout($self->timeout) if defined $self->timeout;
             my $handle = $stream->handle;
             my $clientAddress = $handle->peerhost . ':' . $handle->peerport;
             $self->log->debug("New incoming connection from $clientAddress");
