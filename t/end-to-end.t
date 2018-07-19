@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 26;
+plan tests => 30;
 
 # Test infrastructure
 
@@ -109,7 +109,7 @@ sub runOneTestCase {
 # Tests
 
 runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError,
-    \&transparency, \&allowedChangeFrom, \&allowedChangeHeaders);
+    \&transparency, \&allowedChangeFrom, \&allowedChangeHeaders, \&loginAuth);
 
 sub allowedSimple {
     my $done = shift;
@@ -445,6 +445,49 @@ sub allowedChangeHeaders {
                 '';
             is $toSMTPServerSent{headers}, $expectedHeaders,
                 'Headers removed/replaced as the API requested';
+            $done->();
+        }
+    );
+}
+
+sub loginAuth {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => []
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {type => 'login', login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['another@foobaz.com', 'brother@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Allowed mail accepted by proxy using login auth');
+
+            my @calls = @{$testApi->calledWith};
+            is scalar(@calls), 1, 'Made a single call to the API';
+            is $calls[0]->{username}, 'fooser',
+                'Correct username sent to API using login auth';
+            is $calls[0]->{password}, 's3cr3t',
+                'Correct password sent to API using login auth';
+
             $done->();
         }
     );
