@@ -36,7 +36,7 @@ sub setup {
         # server.
         my %collected;
 
-        $connection->auth_plain(sub {
+        $connection->auth(sub {
             my ($authzid, $authcid, $password) = @_;
             $collected{username} = $authcid;
             $collected{password} = $password;

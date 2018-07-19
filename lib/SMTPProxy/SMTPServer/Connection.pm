@@ -9,7 +9,7 @@ use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id server clientAddress auth_plain mail rcpt data vrfy rset quit)];
+has [qw(loop stream id server clientAddress auth mail rcpt data vrfy rset quit)];
 
 # States we may be in.
 use constant {
@@ -286,7 +286,7 @@ sub _processAuth {
 sub _makeAuthPlainCallback {
     my ($self, $base64) = @_;
     my @args = split "\0", decode_base64($base64);
-    my $authCallback = $self->auth_plain;
+    my $authCallback = $self->auth;
     if ($authCallback) {
         my $promise = $authCallback->(@args);
         $promise->then(
@@ -308,7 +308,7 @@ sub _makeAuthPlainCallback {
 
 sub _makeAuthLoginCallback {
     my ($self, $usernameBase64, $passwordBase64) = @_;
-    my $authCallback = $self->auth_plain;
+    my $authCallback = $self->auth;
     if ($authCallback) {
         my $promise = $authCallback->('', decode_base64($usernameBase64),
             decode_base64($passwordBase64));

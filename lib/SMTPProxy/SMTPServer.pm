@@ -54,8 +54,8 @@ SMTPProxy::SMTPServer - an async SMTP server using Mojo::IOLoop
     );
     $server->setup(sub {
         my $connection = shift;
-        $connection->auth_plain(sub {
-            my ($authzid, $authcid, $password) = @_;
+        $connection->auth(sub {
+            my ($authzid, $authcid_or_username, $password) = @_;
             # Check and then resolve or reject
             return Mojo::Promise->resolve;
         });

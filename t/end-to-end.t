@@ -36,7 +36,7 @@ sub setupTestSMTPTarget {
     );
     $server->setup(sub {
         my $connection = shift;
-        $connection->auth_plain(sub {
+        $connection->auth(sub {
             my ($authzid, $authcid, $password) = @_;
             fail "Target SMTP server should not be auth'd";
             return Mojo::Promise->reject;
