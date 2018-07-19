@@ -285,33 +285,20 @@ sub _processAuth {
 
 sub _makeAuthPlainCallback {
     my ($self, $base64) = @_;
-    my @args = split "\0", decode_base64($base64);
-    my $authCallback = $self->auth;
-    if ($authCallback) {
-        my $promise = $authCallback->(@args);
-        $promise->then(
-            sub {
-                $self->stream->write(formatReply(235, 'Authentication successful'));
-                $self->log->debug('Successfully authenticated ' . $self->clientAddress);
-                $self->{state} = WANT_MAIL;
-            },
-            sub {
-                $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
-                $self->log->debug('Authentication failed for ' . $self->clientAddress);
-            });
-    }
-    else {
-        $self->log->warn('AUTH used but no auth callback set');
-        $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
-    }
+    $self->_makeAuthCallback(split "\0", decode_base64($base64));
 }
 
 sub _makeAuthLoginCallback {
     my ($self, $usernameBase64, $passwordBase64) = @_;
+    $self->_makeAuthCallback('', decode_base64($usernameBase64),
+        decode_base64($passwordBase64));
+}
+
+sub _makeAuthCallback {
+    my ($self, @args) = @_;
     my $authCallback = $self->auth;
     if ($authCallback) {
-        my $promise = $authCallback->('', decode_base64($usernameBase64),
-            decode_base64($passwordBase64));
+        my $promise = $authCallback->(@args);
         $promise->then(
             sub {
                 $self->stream->write(formatReply(235, 'Authentication successful'));
