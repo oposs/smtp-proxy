@@ -30,7 +30,7 @@ my $server = SMTPProxy::SMTPServer->new(
 $server->setup(sub {
     my $connection = shift;
     isa_ok $connection, 'SMTPProxy::SMTPServer::Connection';
-    $connection->auth_plain(sub {
+    $connection->auth(sub {
         my ($authzid, $authcid, $password) = @_;
         is $authzid, '', 'Correct authzid passed to auth callback';
         is $authcid, 'fooser', 'Correct authcid passed to auth callback';

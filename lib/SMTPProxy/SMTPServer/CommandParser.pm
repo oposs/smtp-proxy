@@ -30,7 +30,7 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'AUTH') {
-            if ($arguments =~ /^(\w+)(?: (.*))$/) {
+            if ($arguments =~ /^(\w+)(?: (.*))?$/) {
                 $parsed->{mechanism} = $1;
                 $parsed->{initial} = $2;
             }

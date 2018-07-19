@@ -9,7 +9,7 @@ use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id server clientAddress auth_plain mail rcpt data vrfy rset quit)];
+has [qw(loop stream id server clientAddress auth mail rcpt data vrfy rset quit)];
 
 # States we may be in.
 use constant {
@@ -141,7 +141,7 @@ sub _processInitialEhlo {
         $self->stream->write(formatReply(250,
             $self->server->service_name . ' offers a warm hug of welcome',
             'STARTTLS',
-            ($self->server->require_starttls ? () : 'AUTH PLAIN')));
+            ($self->server->require_starttls ? () : 'AUTH PLAIN LOGIN')));
         $self->{state} = WANT_STARTTLS;
     }
     else {
@@ -192,7 +192,7 @@ sub _processTLSEhlo {
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->stream->write(formatReply(250,
             $self->server->service_name . ' offers another warm hug of welcome',
-            'AUTH PLAIN'));
+            'AUTH PLAIN LOGIN'));
         $self->{state} = WANT_AUTH;
     }
     else {
@@ -234,6 +234,39 @@ sub _processAuth {
                 $self->stream->write(formatReply(334, ''));
             }
         }
+        elsif ($command->{mechanism} eq 'LOGIN') {
+            $self->log->debug("Processing AUTH LOGIN for " . $self->clientAddress);
+            my $usernameBase64;
+            $self->{dataEater} = sub {
+                my $buffer = shift;
+                if ($buffer =~ /^(.+)\r?\n$/) {
+                    if ($usernameBase64) {
+                        my $passwordBase64 = $1;
+                        $self->log->debug("Received AUTH LOGIN password for " .
+                            $self->clientAddress);
+                        $self->{dataEater} = undef;
+                        $self->_makeAuthLoginCallback($usernameBase64, $passwordBase64);
+                        return '';
+                    }
+                    else {
+                        $self->log->debug("Received AUTH LOGIN usernmae for " .
+                            $self->clientAddress);
+                        $usernameBase64 = $1;
+                        $self->stream->write(formatReply(334, encode_base64('Password', '')));
+                        return '';
+                    }
+                }
+                elsif ($buffer =~ /\n/) {
+                    $self->stream->write(formatReply(500,
+                        'confused authentication response'));
+                    return '';
+                }
+                else {
+                    return $buffer;
+                }
+            };
+            $self->stream->write(formatReply(334, encode_base64('Username', '')));
+        }
         else {
             $self->log->debug("Unsupported AUTH mechanism " . $command->{mechanism}.
                 " used by " . $self->clientAddress);
@@ -252,8 +285,18 @@ sub _processAuth {
 
 sub _makeAuthPlainCallback {
     my ($self, $base64) = @_;
-    my @args = split "\0", decode_base64($base64);
-    my $authCallback = $self->auth_plain;
+    $self->_makeAuthCallback(split "\0", decode_base64($base64));
+}
+
+sub _makeAuthLoginCallback {
+    my ($self, $usernameBase64, $passwordBase64) = @_;
+    $self->_makeAuthCallback('', decode_base64($usernameBase64),
+        decode_base64($passwordBase64));
+}
+
+sub _makeAuthCallback {
+    my ($self, @args) = @_;
+    my $authCallback = $self->auth;
     if ($authCallback) {
         my $promise = $authCallback->(@args);
         $promise->then(

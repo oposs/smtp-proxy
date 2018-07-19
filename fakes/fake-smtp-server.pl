@@ -22,7 +22,7 @@ my $server = SMTPProxy::SMTPServer->new(
 );
 $server->setup(sub {
     my $connection = shift;
-    $connection->auth_plain(sub {
+    $connection->auth(sub {
         my ($authzid, $authcid, $password) = @_;
         say "Auth $authcid, $password";
         return Mojo::Promise->new->resolve;
