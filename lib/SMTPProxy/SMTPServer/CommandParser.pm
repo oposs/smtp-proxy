@@ -40,7 +40,7 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'MAIL') {
-            if ($arguments =~ /^FROM:<([^>]+)>(?: (.*))?$/) {
+            if ($arguments =~ /^FROM:\s*<([^>]+)>(?: (.*))?$/) {
                 $parsed->{from} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
