@@ -9,7 +9,10 @@ use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id server clientAddress auth mail rcpt data vrfy rset quit)];
+has [qw(
+    loop stream id server clientAddress auth mail rcpt data vrfy rset quit
+    smtplogHandle
+)];
 
 # States we may be in.
 use constant {
@@ -28,7 +31,7 @@ sub log {
 
 sub process {
     my $self = shift;
-    $self->stream->write(formatReply(220, $self->server->service_name . ' SMTP service ready'));
+    $self->_sendReply(220, $self->server->service_name . ' SMTP service ready');
     $self->{state} = WANT_INITIAL_EHLO;
     $self->_startReader();
     $self->_setupClose;
@@ -59,13 +62,22 @@ sub _startReader {
         # Otherwise, try to parse a command.
         else {
             my $command;
+            my $initialBuffer = $buffer;
             ($command, $buffer) = parseCommand($buffer);
+            if ($self->smtplogHandle) {
+                my $parsed = substr($initialBuffer, 0,
+                    length($initialBuffer) - length($buffer));
+                if (!$self->server->credentials && $command->{command} eq 'AUTH') {
+                    $parsed =~ s/^(AUTH\s+\w+\s+).+$/$1\[REDACTED]/;
+                }
+                $self->_writeSmtpLogEntry(0, $parsed);
+            }
             if ($command) {
                 if ($command->{error}) {
-                    $self->stream->write(formatReply(
+                    $self->_sendReply(
                         $command->{suggested_reply} // 500,
                         $command->{error}
-                    ));
+                    );
                 }
                 else {
                     $self->_processCommand($command);
@@ -73,6 +85,31 @@ sub _startReader {
             }
         }
     });
+}
+
+sub _sendReply {
+    my ($self, $code, @args) = @_;
+    my $p = Mojo::Promise->new;
+    my $reply = formatReply($code, @args);
+    if ($self->smtplogHandle) {
+        $self->_writeSmtpLogEntry(1, $reply);
+    }
+    $self->stream->write($reply, sub { $p->resolve(@_) });
+    return $p;
+}
+
+sub _writeSmtpLogEntry {
+    my ($self, $sent, $entry) = @_;
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    my $timestamp = sprintf "%4d-%02d-%02d %02d:%02d:%02d", $year + 1900, $mon + 1,
+        $mday, $hour, $min, $sec;
+    my $leader = $sent ? "<<<" : ">>>";
+    my $handle = $self->smtplogHandle;
+    $entry =~ s/\r?\n$//;
+    for (split /\r?\n/, $entry) {
+        say $handle $self->id . " $timestamp $leader $_";
+    }
+    flush $handle;
 }
 
 my @STATE_METHODS = (
@@ -94,12 +131,12 @@ sub _processCommand {
         my $callback = $self->quit;
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
         $callback->() if $callback;
-        $self->stream->write(
-            formatReply(221, $self->server->service_name . 'Service closing transmission channel'));
+        $self->_sendReply(221,
+            $self->server->service_name . ' closing transmission channel');
     }
     elsif ($commandName eq 'NOOP') {
         $self->log->debug("Processing NOOP for " . $self->clientAddress);
-        $self->stream->write(formatReply(250, 'OK'));
+        $self->_sendReply(250, 'OK');
     }
     elsif ($commandName eq 'VRFY') {
         my $callback = $self->vrfy;
@@ -108,14 +145,14 @@ sub _processCommand {
             $callback->($command->{string})
                 ->then(
                     sub {
-                        $self->stream->write(formatReply(250, @_));
+                        $self->_sendReply(250, @_);
                     },
                     sub {
-                        $self->stream->write(formatReply(553, @_));
+                        $self->_sendReply(553, @_);
                     });
         }
         else {
-            $self->stream->write(formatReply(553, 'User ambiguous'));
+            $self->_sendReply(553, 'User ambiguous');
         }
     }
     elsif ($commandName eq 'RSET') {
@@ -125,7 +162,7 @@ sub _processCommand {
         if ($self->{state} > WANT_MAIL) {
             $self->{state} = WANT_MAIL;
         }
-        $self->stream->write(formatReply(250, 'OK'));
+        $self->_sendReply(250, 'OK');
     }
     else {
         # Go by state.
@@ -138,14 +175,14 @@ sub _processInitialEhlo {
     my ($self, $command) = @_;
     my $commandName = $command->{command};
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
-        $self->stream->write(formatReply(250,
+        $self->_sendReply(250,
             $self->server->service_name . ' offers a warm hug of welcome',
             'STARTTLS',
-            ($self->server->require_starttls ? () : 'AUTH PLAIN LOGIN')));
+            ($self->server->require_starttls ? () : 'AUTH PLAIN LOGIN'));
         $self->{state} = WANT_STARTTLS;
     }
     else {
-        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+        $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
 
@@ -153,7 +190,7 @@ sub _processStartTLS {
     my ($self, $command) = @_;
     my $commandName = $command->{command};
     if ($commandName eq 'STARTTLS') {
-        $self->stream->write(formatReply(220, 'Go ahead'), sub {
+        $self->_sendReply(220, 'Go ahead')->then(sub {
             my $tls = Mojo::IOLoop::TLS->new($self->stream->handle);
             $tls->on(upgrade => sub {
                 my ($tls, $new_handle) = @_;
@@ -178,7 +215,7 @@ sub _processStartTLS {
         });
     }
     elsif ($self->server->require_starttls) {
-        $self->stream->write(formatReply(530, 'Must issue a STARTTLS command first'));
+        $self->_sendReply(530, 'Must issue a STARTTLS command first');
     }
     else {
         $self->{state} = WANT_AUTH;
@@ -190,9 +227,9 @@ sub _processTLSEhlo {
     my ($self, $command) = @_;
     my $commandName = $command->{command};
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
-        $self->stream->write(formatReply(250,
+        $self->_sendReply(250,
             $self->server->service_name . ' offers another warm hug of welcome',
-            'AUTH PLAIN LOGIN'));
+            'AUTH PLAIN LOGIN');
         $self->{state} = WANT_AUTH;
     }
     else {
@@ -217,21 +254,22 @@ sub _processAuth {
             else {
                 $self->{dataEater} = sub {
                     my $buffer = shift;
-                    if ($buffer =~ /^(.+)\r?\n$/) {
+                    if ($buffer =~ /^(.+?)\r?\n$/) {
+                        my $auth = $1;
                         $self->{dataEater} = undef;
-                        $self->_makeAuthPlainCallback($1);
+                        $self->_logAuthenticationData($auth);
+                        $self->_makeAuthPlainCallback($auth);
                         return '';
                     }
                     elsif ($buffer =~ /\n/) {
-                        $self->stream->write(formatReply(500,
-                            'confused authentication response'));
+                        $self->_sendReply(500, 'confused authentication response');
                         return '';
                     }
                     else {
                         return $buffer;
                     }
                 };
-                $self->stream->write(formatReply(334, ''));
+                $self->_sendReply(334, '');
             }
         }
         elsif ($command->{mechanism} eq 'LOGIN') {
@@ -239,9 +277,11 @@ sub _processAuth {
             my $usernameBase64;
             $self->{dataEater} = sub {
                 my $buffer = shift;
-                if ($buffer =~ /^(.+)\r?\n$/) {
+                if ($buffer =~ /^(.+?)\r?\n$/) {
+                    my $auth = $1;
+                    $self->_logAuthenticationData($auth);
                     if ($usernameBase64) {
-                        my $passwordBase64 = $1;
+                        my $passwordBase64 = $auth;
                         $self->log->debug("Received AUTH LOGIN password for " .
                             $self->clientAddress);
                         $self->{dataEater} = undef;
@@ -251,35 +291,41 @@ sub _processAuth {
                     else {
                         $self->log->debug("Received AUTH LOGIN usernmae for " .
                             $self->clientAddress);
-                        $usernameBase64 = $1;
-                        $self->stream->write(formatReply(334, encode_base64('Password', '')));
+                        $usernameBase64 = $auth;
+                        $self->_sendReply(334, encode_base64('Password', ''));
                         return '';
                     }
                 }
                 elsif ($buffer =~ /\n/) {
-                    $self->stream->write(formatReply(500,
-                        'confused authentication response'));
+                    $self->_sendReply(500, 'confused authentication response');
                     return '';
                 }
                 else {
                     return $buffer;
                 }
             };
-            $self->stream->write(formatReply(334, encode_base64('Username', '')));
+            $self->_sendReply(334, encode_base64('Username', ''));
         }
         else {
             $self->log->debug("Unsupported AUTH mechanism " . $command->{mechanism}.
                 " used by " . $self->clientAddress);
-            $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
+            $self->_sendReply(504, 'Authentication mechanism not supported');
         }
     }
     elsif ($self->server->require_auth) {
         $self->log->debug("Authentication required sent to " . $self->clientAddress);
-        $self->stream->write(formatReply(530, 'Authentication required'));
+        $self->_sendReply(530, 'Authentication required');
     }
     else {
         $self->{state} = WANT_MAIL;
         $self->_processMail($command);
+    }
+}
+
+sub _logAuthenticationData{
+    my ($self, $auth) = @_;
+    if ($self->smtplogHandle) {
+        $self->_writeSmtpLogEntry(0, $self->server->credentials ? $auth : '[REDACTED]');
     }
 }
 
@@ -301,18 +347,18 @@ sub _makeAuthCallback {
         my $promise = $authCallback->(@args);
         $promise->then(
             sub {
-                $self->stream->write(formatReply(235, 'Authentication successful'));
+                $self->_sendReply(235, 'Authentication successful');
                 $self->log->debug('Successfully authenticated ' . $self->clientAddress);
                 $self->{state} = WANT_MAIL;
             },
             sub {
-                $self->stream->write(formatReply(535, 'Authentication credentials invalid'));
+                $self->_sendReply(535, 'Authentication credentials invalid');
                 $self->log->debug('Authentication failed for ' . $self->clientAddress);
             });
     }
     else {
         $self->log->warn('AUTH used but no auth callback set');
-        $self->stream->write(formatReply(504, 'Authentication mechanism not supported'));
+        $self->_sendReply(504, 'Authentication mechanism not supported');
     }
 }
 
@@ -322,19 +368,19 @@ sub _processMail {
         my $promise = $self->mail->($command->{from}, $command->{parameters});
         $promise->then(
             sub {
-                $self->stream->write(formatReply(250, 'OK'));
+                $self->_sendReply(250, 'OK');
                 $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
                 $self->{state} = WANT_RCPT;
             },
             sub {
                 my $error = shift;
-                $self->stream->write(formatReply(553,
-                    'Requested action not taken: ' . $error));
+                $self->_sendReply(553,
+                    'Requested action not taken: ' . $error);
                 $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
             });
     }
     else {
-        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+        $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
 
@@ -344,19 +390,19 @@ sub _processRcpt {
         my $promise = $self->rcpt->($command->{to}, $command->{parameters});
         $promise->then(
             sub {
-                $self->stream->write(formatReply(250, 'OK'));
+                $self->_sendReply(250, 'OK');
                 $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
                 $self->{state} = WANT_DATA;
             },
             sub {
                 my $error = shift;
-                $self->stream->write(formatReply(550,
-                    'Will not send mail to this user: ' . $error));
+                $self->_sendReply(550,
+                    'Will not send mail to this user: ' . $error);
                 $self->log->debug('RCPT command rejected for ' . $self->clientAddress);
             });
     }
     else {
-        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+        $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
 
@@ -390,13 +436,13 @@ sub _processData {
                     $self->{dataEater} = '';
                     $promise->then(
                         sub {
-                            $self->stream->write(formatReply(250, 'OK'));
+                            $self->_sendReply(250, 'OK');
                             $self->{state} = WANT_MAIL;
                             $self->log->debug('Accepted MAIL command for ' . $self->clientAddress);
                         },
                         sub {
                             my $message = shift;
-                            $self->stream->write(formatReply(550, $message // ''));
+                            $self->_sendReply(550, $message // '');
                             $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
                             $self->{state} = WANT_MAIL;
                         });
@@ -417,10 +463,10 @@ sub _processData {
                 }
             }
         };
-        $self->stream->write(formatReply(354, ''));
+        $self->_sendReply(354, '');
     }
     else {
-        $self->stream->write(formatReply(503, 'Bad sequence of commands'));
+        $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
 

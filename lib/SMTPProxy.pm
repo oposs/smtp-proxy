@@ -6,7 +6,10 @@ use Mojo::Promise;
 use Mojo::SMTP::Client;
 use SMTPProxy::SMTPServer;
 
-has [qw(listenhost listenport tohost toport user tls_cert tls_key api service_name)];
+has [qw(
+    listenhost listenport tohost toport user tls_cert tls_key api service_name
+    smtplog credentials
+)];
 
 has log => sub {
     my $self = shift;
@@ -25,6 +28,8 @@ sub setup {
         tls_cert => $self->tls_cert,
         tls_key => $self->tls_key,
         service_name => $self->service_name || $self->listenhost,
+        smtplog => $self->smtplog,
+        credentials => $self->credentials,
         require_starttls => 1,
         require_auth => 1,
         timeout => 0,

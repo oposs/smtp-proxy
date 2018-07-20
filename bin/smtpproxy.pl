@@ -12,8 +12,8 @@ use SMTPProxy::API;
 sub main {
     my $opt = {};
     my @mandatory = qw(tohost=s toport=i listenhost=s listenport=i tls_cert=s tls_key=s api=s);
-    GetOptions($opt, 'user=s', 'logpath=s','loglevel=s', 'help|h', 'man', @mandatory)
-        or pod2usage(1);
+    GetOptions($opt, 'user=s', 'logpath=s','loglevel=s', 'smtplog=s', 'credentials',
+        'help|h', 'man', @mandatory) or pod2usage(1);
     if ($opt->{help}) {
         pod2usage(1);
     }
@@ -60,6 +60,8 @@ B<smtpproxy.pl> I<options>
     --api=x         URL of the authentication API
     --logpath=x     where should the logfile be written to
     --loglevel=x    debug|info|warn|error|fatal
+    --smtplog=x     optional detailed log file of SMTP commands and responses
+    --credentials   include username and password info in the smtplog
 
 =head1 DESCRIPTION
 
