@@ -4,10 +4,18 @@ use Mojo::Base -base;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 
-has [qw(address port log tls_cert tls_key service_name require_starttls require_auth timeout)];
+has [qw(
+    address port log tls_cert tls_key service_name require_starttls require_auth
+    timeout smtplog credentials
+)];
 
 sub setup {
     my ($self, $callback) = @_;
+    my $smtplogHandle;
+    if ($self->smtplog) {
+        my $file = $self->smtplog;
+        open($smtplogHandle, '>>', $file) or die "Could not open $file: $!";
+    }
     Mojo::IOLoop->server(
         { address => $self->address, port => $self->port },
         sub {
@@ -23,7 +31,8 @@ sub setup {
                 stream => $stream,
                 id => $id,
                 server => $self,
-                clientAddress => $clientAddress
+                clientAddress => $clientAddress,
+                smtplogHandle => $smtplogHandle,
             );
             $callback->($connection);
             $connection->process;

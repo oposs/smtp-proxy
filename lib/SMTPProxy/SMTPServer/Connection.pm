@@ -9,7 +9,10 @@ use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 
-has [qw(loop stream id server clientAddress auth mail rcpt data vrfy rset quit)];
+has [qw(
+    loop stream id server clientAddress auth mail rcpt data vrfy rset quit
+    smtplogHandle
+)];
 
 # States we may be in.
 use constant {
@@ -59,7 +62,16 @@ sub _startReader {
         # Otherwise, try to parse a command.
         else {
             my $command;
+            my $initialBuffer = $buffer;
             ($command, $buffer) = parseCommand($buffer);
+            if ($self->smtplogHandle) {
+                my $parsed = substr($initialBuffer, 0,
+                    length($initialBuffer) - length($buffer));
+                if (!$self->server->credentials && $command->{command} eq 'AUTH') {
+                    $parsed =~ s/^(AUTH\s+\w+\s+).+$/$1\[REDACTED]/;
+                }
+                $self->_writeSmtpLogEntry(0, $parsed);
+            }
             if ($command) {
                 if ($command->{error}) {
                     $self->_sendReply(
@@ -78,10 +90,25 @@ sub _startReader {
 sub _sendReply {
     my ($self, $code, @args) = @_;
     my $p = Mojo::Promise->new;
-    $self->stream->write(formatReply($code, @args), sub {
-        $p->resolve(@_);
-    });
+    my $reply = formatReply($code, @args);
+    if ($self->smtplogHandle) {
+        $self->_writeSmtpLogEntry(1, $reply);
+    }
+    $self->stream->write($reply, sub { $p->resolve(@_) });
     return $p;
+}
+
+sub _writeSmtpLogEntry {
+    my ($self, $sent, $entry) = @_;
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+    my $timestamp = sprintf "%4d-%02d-%02d %02d:%02d:%02d", $year + 1900, $mon + 1,
+        $mday, $hour, $min, $sec;
+    my $leader = $sent ? "<<<" : ">>>";
+    my $handle = $self->smtplogHandle;
+    $entry =~ s/\r?\n$//;
+    for (split /\r?\n/, $entry) {
+        say $handle $self->id . " $timestamp $leader $_";
+    }
 }
 
 my @STATE_METHODS = (
@@ -103,8 +130,8 @@ sub _processCommand {
         my $callback = $self->quit;
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
         $callback->() if $callback;
-        $self->stream->write(
-            formatReply(221, $self->server->service_name . 'Service closing transmission channel'));
+        $self->_sendReply(221,
+            $self->server->service_name . ' closing transmission channel');
     }
     elsif ($commandName eq 'NOOP') {
         $self->log->debug("Processing NOOP for " . $self->clientAddress);
@@ -226,9 +253,11 @@ sub _processAuth {
             else {
                 $self->{dataEater} = sub {
                     my $buffer = shift;
-                    if ($buffer =~ /^(.+)\r?\n$/) {
+                    if ($buffer =~ /^(.+?)\r?\n$/) {
+                        my $auth = $1;
                         $self->{dataEater} = undef;
-                        $self->_makeAuthPlainCallback($1);
+                        $self->_logAuthenticationData($auth);
+                        $self->_makeAuthPlainCallback($auth);
                         return '';
                     }
                     elsif ($buffer =~ /\n/) {
@@ -247,9 +276,11 @@ sub _processAuth {
             my $usernameBase64;
             $self->{dataEater} = sub {
                 my $buffer = shift;
-                if ($buffer =~ /^(.+)\r?\n$/) {
+                if ($buffer =~ /^(.+?)\r?\n$/) {
+                    my $auth = $1;
+                    $self->_logAuthenticationData($auth);
                     if ($usernameBase64) {
-                        my $passwordBase64 = $1;
+                        my $passwordBase64 = $auth;
                         $self->log->debug("Received AUTH LOGIN password for " .
                             $self->clientAddress);
                         $self->{dataEater} = undef;
@@ -259,7 +290,7 @@ sub _processAuth {
                     else {
                         $self->log->debug("Received AUTH LOGIN usernmae for " .
                             $self->clientAddress);
-                        $usernameBase64 = $1;
+                        $usernameBase64 = $auth;
                         $self->_sendReply(334, encode_base64('Password', ''));
                         return '';
                     }
@@ -287,6 +318,13 @@ sub _processAuth {
     else {
         $self->{state} = WANT_MAIL;
         $self->_processMail($command);
+    }
+}
+
+sub _logAuthenticationData{
+    my ($self, $auth) = @_;
+    if ($self->smtplogHandle) {
+        $self->_writeSmtpLogEntry(0, $self->server->credentials ? $auth : '[REDACTED]');
     }
 }
 
