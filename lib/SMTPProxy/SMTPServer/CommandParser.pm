@@ -62,7 +62,7 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'RCPT') {
-            if ($arguments =~ /^TO:<([^>]+)>(?: (.*))?$/) {
+            if ($arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/) {
                 $parsed->{to} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
