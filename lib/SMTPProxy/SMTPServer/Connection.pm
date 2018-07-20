@@ -109,6 +109,7 @@ sub _writeSmtpLogEntry {
     for (split /\r?\n/, $entry) {
         say $handle $self->id . " $timestamp $leader $_";
     }
+    flush $handle;
 }
 
 my @STATE_METHODS = (
