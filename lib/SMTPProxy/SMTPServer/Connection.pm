@@ -44,6 +44,11 @@ sub _setupClose {
             Mojo::IOLoop->remove($self->id);
             %$self = ();
         });
+    $self->stream->on('error',
+        sub {
+            Mojo::IOLoop->remove($self->id);
+            %$self = ();
+        });
 }
 
 sub _startReader {
