@@ -1,3 +1,8 @@
+0.5.0 2019-06-04 12:05:58 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - support --listen option instead of --listenhost and --listenport
+   --listen=ip:port can be used multiple times
+
 0.2.0 2018-06-14 Fritz Zaucker
 
 * first test version for HIN

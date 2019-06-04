@@ -28,8 +28,7 @@ my $fakeServerError;
 sub setupTestSMTPTarget {
     my $server = SMTPProxy::SMTPServer->new(
         log => $TEST_LOG,
-        address => $TEST_HOST,
-        port => $TEST_TO_PORT,
+        listen => [$TEST_HOST.':'.$TEST_TO_PORT],
         service_name => 'test.to.service',
         require_starttls => 0,
         require_auth => 0,
@@ -74,8 +73,7 @@ sub setupTestSMTPTarget {
 sub setupProxy {
     my $proxy = SMTPProxy->new(
         log => $TEST_LOG,
-        listenhost => $TEST_HOST,
-        listenport => $TEST_PROXY_PORT,
+        listen => [ $TEST_HOST.':'.$TEST_PROXY_PORT,$TEST_HOST.':'.($TEST_PROXY_PORT+1) ],
         tohost => $TEST_HOST,
         toport => $TEST_TO_PORT,
         tls_cert => "$FindBin::Bin/certs-and-keys/server.crt",

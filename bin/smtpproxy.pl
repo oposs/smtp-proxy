@@ -11,7 +11,7 @@ use SMTPProxy::API;
 
 sub main {
     my $opt = {};
-    my @mandatory = qw(tohost=s toport=i listenhost=s listenport=i tls_cert=s tls_key=s api=s);
+    my @mandatory = qw(tohost=s toport=i listen=s@ tls_cert=s tls_key=s api=s);
     GetOptions($opt, 'user=s', 'logpath=s','loglevel=s', 'smtplog=s', 'credentials',
         'help|h', 'man', @mandatory) or pod2usage(1);
     if ($opt->{help}) {
@@ -30,7 +30,7 @@ sub main {
     );
     my $api = SMTPProxy::API->new(log => $log, url => $opt->{api});
     my $proxy = SMTPProxy->new(%$opt, api => $api);
-    say "Waiting for connections on ". $proxy->listenhost . ':'. $proxy->listenport;
+    say "Waiting for connections on ". join (', ',@{$proxy->listen});
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
     $proxy->setup();
     Mojo::IOLoop->start();
@@ -48,20 +48,19 @@ smtpproxy.pl - SMTP authentication and header injection proxy
 
 B<smtpproxy.pl> I<options>
 
-    --man           show man-page and exit
- -h,--help          display this help and exit
-    --listenhost=x  on which IP should we listen; use 0.0.0.0 to listen on all
-    --listenport=x  on which port should we listen
-    --user=x        drop privileges and become this user after start
-    --tohost=x      host of the SMTP server to proxy to
-    --toport=x      port of the SMTP server to proxy to
-    --tls_cert=x    file containing a TLS certificate (for STARTTLS)
-    --tls_key=x     file containing a TLS key (for STARTTLS)
-    --api=x         URL of the authentication API
-    --logpath=x     where should the logfile be written to
-    --loglevel=x    debug|info|warn|error|fatal
-    --smtplog=x     optional detailed log file of SMTP commands and responses
-    --credentials   include username and password info in the smtplog
+    --man            show man-page and exit
+ -h,--help           display this help and exit
+    --listen=ip:port on which IP should we listen; use 0.0.0.0 to listen on all
+    --user=x         drop privileges and become this user after start
+    --tohost=x       host of the SMTP server to proxy to
+    --toport=x       port of the SMTP server to proxy to
+    --tls_cert=x     file containing a TLS certificate (for STARTTLS)
+    --tls_key=x      file containing a TLS key (for STARTTLS)
+    --api=x          URL of the authentication API
+    --logpath=x      where should the logfile be written to
+    --loglevel=x     debug|info|warn|error|fatal
+    --smtplog=x      optional detailed log file of SMTP commands and responses
+    --credentials    include username and password info in the smtplog
 
 =head1 DESCRIPTION
 

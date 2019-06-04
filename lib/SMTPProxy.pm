@@ -5,9 +5,10 @@ use Mojo::Log;
 use Mojo::Promise;
 use Mojo::SMTP::Client;
 use SMTPProxy::SMTPServer;
+use Mojo::Util qw(dumper);
 
 has [qw(
-    listenhost listenport tohost toport user tls_cert tls_key api service_name
+    listen tohost toport user tls_cert tls_key api service_name
     smtplog credentials
 )];
 
@@ -21,13 +22,13 @@ has log => sub {
 
 sub setup {
     my $self = shift;
+    #warn dumper $self;
     my $server = SMTPProxy::SMTPServer->new(
         log => $self->log,
-        address => $self->listenhost,
-        port => $self->listenport,
+        listen => $self->listen,
         tls_cert => $self->tls_cert,
         tls_key => $self->tls_key,
-        service_name => $self->service_name || $self->listenhost,
+        service_name => ( $self->service_name || ($self->listen)[0]),
         smtplog => $self->smtplog,
         credentials => $self->credentials,
         require_starttls => 1,
@@ -190,8 +191,7 @@ SMTPProxy - SMTP proxy using an API to authenticate and inject headers
     use SMTPProxy;
     my $proxy = SMTPProxy->new(
         # Where to start an SMTP server
-        listenhost => ...,
-        listenport => ...,
+        listen => [ 'ip:port', ... ],
         # The SMTP server to proxy accepted requests onward to
         tohost => ...,
         toport => ...,
