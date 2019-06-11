@@ -1,3 +1,7 @@
+0.5.1 2019-06-04 12:10:28 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - update documentation
+
 0.5.0 2019-06-04 12:05:58 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - support --listen option instead of --listenhost and --listenport
