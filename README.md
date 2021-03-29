@@ -1,6 +1,6 @@
 # SMTP Authentication Proxy
 
-This non-blocking smtp proxy will use a REST call to determine if the incoming mail is 'OK' or not. In contrast to other implementations, for example the one present in nginx, it will only issue the REST call after receiving the login, and the headers of the email. This allows the external service to not only validate the username and password but also if the sender and recipient addresses are to be permitted.
+This non-blocking smtp proxy will use a REST call to determine if the incoming mail is 'OK' or not. In contrast to other implementations, for example the one present in nginx, it will only issue the REST call after receiving the login, and the headers of the email. This allows the external service to not only validate the username and password, but also to decide if the sender address is allowed to send mail to the recipient address.
 
 ## Request
 
