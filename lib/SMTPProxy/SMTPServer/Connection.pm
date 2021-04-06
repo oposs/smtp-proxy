@@ -450,7 +450,8 @@ sub _processData {
                             $self->_sendReply(550, $message // '');
                             $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
                             $self->{state} = WANT_MAIL;
-                        });
+                        }
+                    );
                 }
 
                 # If we're awaiting headers and we get an empty line, then

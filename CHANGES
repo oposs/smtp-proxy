@@ -1,5 +1,7 @@
 0.6.0 2021-04-06 Fritz Zaucker <fritz.zaucker@oetiker.ch>
 
+ - updated build environment
+ - fixed tests
  - write $apiResult->{authId} to log file on successful mail relay
  - fix some documentation typos
 

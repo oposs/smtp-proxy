@@ -85,12 +85,14 @@ sub setup {
                         if ($outcome->{allow}) {
                             $self->_relayMail($result, $connection,
                                 $outcome, %collected);
+                            return;
                         }
                         else {
                             my $reason = $outcome->{reason};
                             $self->log->info("Mail rejected by API ($reason) for " .
                                 $connection->clientAddress);
                             $result->reject($reason);
+                            return;
                         }
                     },
                     sub {
@@ -99,6 +101,9 @@ sub setup {
                             $connection->clientAddress);
                         $result->reject('authentication service failed');
                     });
+            })->catch(sub {
+                my $msg = shift;
+                $self->log->error("Unexpecteldly dailed BodyPromise: $msg");
             });
             return $result;
         });
@@ -173,7 +178,7 @@ sub _relayMail {
             else {
                 $self->log->info('Relayed mail successfully for ' .
                     $connection->clientAddress .
-                    " using token $apiResult->{authId}");
+                    ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
                 $resultPromise->resolve;
             }
         });
