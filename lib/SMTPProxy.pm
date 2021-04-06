@@ -172,7 +172,8 @@ sub _relayMail {
             }
             else {
                 $self->log->info('Relayed mail successfully for ' .
-                    $connection->clientAddress);
+                    $connection->clientAddress .
+                    " using token $apiResult->{authId}");
                 $resultPromise->resolve;
             }
         });
