@@ -1,4 +1,4 @@
-#  Copyright (C) 2017 Tobias Oetiker
+#  Copyright (C) <%= ${year} %> <%= ${fullName} %>
 
 AC_INIT([smtp-proxy],m4_esyscmd([tr -d '\n' < VERSION]),[jonathan@oetiker.ch])
 AC_PREREQ([2.59])
@@ -6,7 +6,6 @@ AC_CONFIG_AUX_DIR(conftools)
 
 MJ_CLASS=SMTPProxy
 MJ_SCRIPT=smtpproxy
-
 AC_SUBST(MJ_CLASS)
 AC_SUBST(MJ_SCRIPT)
 
@@ -36,15 +35,14 @@ fi
 
 AC_SUBST(URL_CAT)
 
+ac_perl_version="5.22.0"
 
-ac_perl_version="5.10.1"
-
-if test "x$PERL" != "x"; then
+if test -x "$PERL"; then
   AC_MSG_CHECKING(for perl version greater than or equal to $ac_perl_version)
   $PERL -e "use $ac_perl_version;" >/dev/null 2>&1
   if test $? -ne 0; then
     AC_MSG_RESULT(no);
-    AC_MSG_ERROR(at least version 5.10.1 is required to run mojolicious)
+    AC_MSG_ERROR(at least version ${ac_perl_version} is required to run mojolicious)
   else
     AC_MSG_RESULT(ok);
   fi
@@ -102,12 +100,12 @@ AC_ARG_ENABLE(pkgonly,
 AC_SUBST(enable_pkgonly)
 
 actual_prefix=$prefix
-if test x$actual_prefix = xNONE; then
+if test "$actual_prefix" = "NONE"; then
     actual_prefix=$ac_default_prefix
 fi
 
 AC_MSG_CHECKING([Checking Install Prefix])
-if test -f $actual_prefix/configure; then
+if test -f "$actual_prefix/configure"; then
     AC_MSG_ERROR([The install prefix must NOT point to the directory where you unpacked the source.])
 else
     AC_MSG_RESULT([install Prefix is fine])
@@ -128,18 +126,7 @@ AC_SUBST(VERSION)
 
 AC_OUTPUT
 
-if test x$mod_ok = x0; then
-    cat <<NOTES
 
-** SOME PERL MODULES ARE MISSING ******************************
-
-If you know where perl can find the missing modules, set
-the PERL5LIB environment variable accordingly. Otherwise
-just proceed and the missing modules will be installed
-automatically.
-NOTES
-
-fi
 
 cat <<NOTES
 

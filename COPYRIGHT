@@ -4,7 +4,7 @@ smtp-proxy
 An SMTP authentication proxy, delegating to a REST service to authenticate
 and potentially get extra headers to add.
 
-Copyright (c) 2019 OETIKER+PARTNER AG and the other people listed in the
+Copyright (c) 2021 OETIKER+PARTNER AG and the other people listed in the
 AUTHORS file.
 
 All rights reserved.

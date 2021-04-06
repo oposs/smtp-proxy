@@ -1,5 +1,6 @@
 *~
 aclocal.m4
+configure
 autom4te.cache/
 *.bak
 /blib/
@@ -29,4 +30,4 @@ nytprof.out
 !thirdparty/
 thirdparty/*
 !thirdparty/Makefile.am
-!thirdparty/Makefile.in
+
