@@ -66,11 +66,11 @@ B<smtpproxy.pl> I<options>
 
 Starts an SMTP server on the listen host and port. When a connection is
 established, communicates with the client up to the point it has both the
-envelope and the mail data headers. It requires STARTTLS be used, and takes
+envelope and the mail data headers. It requires STARTTLS to be used, and takes
 authentication details using the PLAIN mechanism.
 
 It then passes the authentication details, envelope headers, and data headers
-to a REST API, which determies if the mail is allowed to be sent and, if so,
+to a REST API, which determines if the mail is allowed to be sent and, if so,
 what additional headers should be inserted.
 
 Once the mail has been fully received, and if it is allowed to be sent, then

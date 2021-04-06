@@ -1,3 +1,8 @@
+0.6.0 2021-04-06 Fritz Zaucker <fritz.zaucker@oetiker.ch>
+
+ - write $apiResult->{authId} to log file on successful mail relay
+ - fix some documentation typos
+
 0.5.1 2019-06-04 12:10:28 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - update documentation
