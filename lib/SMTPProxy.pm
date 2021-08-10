@@ -28,7 +28,7 @@ sub setup {
         listen => $self->listen,
         tls_cert => $self->tls_cert,
         tls_key => $self->tls_key,
-        service_name => ( $self->service_name || ($self->listen)[0]),
+        service_name => ( $self->service_name || 'smtp-proxy'),
         smtplog => $self->smtplog,
         credentials => $self->credentials,
         require_starttls => 1,
