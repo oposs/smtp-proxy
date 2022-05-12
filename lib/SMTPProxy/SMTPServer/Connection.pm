@@ -294,10 +294,11 @@ sub _processAuth {
                         return '';
                     }
                     else {
-                        $self->log->debug("Received AUTH LOGIN usernmae for " .
+                        
+                        $self->log->debug("Received AUTH LOGIN username for " .
                             $self->clientAddress);
                         $usernameBase64 = $auth;
-                        $self->_sendReply(334, encode_base64('Password', ''));
+                        $self->_sendReply(334, encode_base64('Password:', ''));
                         return '';
                     }
                 }
@@ -309,7 +310,7 @@ sub _processAuth {
                     return $buffer;
                 }
             };
-            $self->_sendReply(334, encode_base64('Username', ''));
+            $self->_sendReply(334, encode_base64('Username:', ''));
         }
         else {
             $self->log->debug("Unsupported AUTH mechanism " . $command->{mechanism}.

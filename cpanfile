@@ -1,4 +1,4 @@
-requires 'Mojolicious', '== 8.73';
+requires 'Mojolicious', '== 9.25';
 requires 'Getopt::Long';
 requires 'Pod::Usage';
 requires 'IO::Socket::SSL';

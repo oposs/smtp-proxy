@@ -1,3 +1,7 @@
+0.6.1 2022-05-12 15:23:55 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - AUTH LOGIN should be Username: and Password: both with a colon at the end.
+
 0.6.0 2021-04-06 Fritz Zaucker <fritz.zaucker@oetiker.ch>
 
  - updated build environment

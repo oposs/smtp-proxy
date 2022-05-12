@@ -31,3 +31,4 @@ nytprof.out
 thirdparty/*
 !thirdparty/Makefile.am
 
+distsecret
