@@ -1,3 +1,7 @@
+0.6.2 2022-05-16 16:10:21 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - fix 0.6.0 regression ... return should return the rejection!
+
 0.6.1 2022-05-12 15:23:55 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - AUTH LOGIN should be Username: and Password: both with a colon at the end.

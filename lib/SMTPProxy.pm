@@ -83,27 +83,25 @@ sub setup {
                     sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
-                            $self->_relayMail($result, $connection,
+                            return $self->_relayMail($result, $connection,
                                 $outcome, %collected);
-                            return;
                         }
                         else {
                             my $reason = $outcome->{reason};
                             $self->log->info("Mail rejected by API ($reason) for " .
                                 $connection->clientAddress);
-                            $result->reject($reason);
-                            return;
+                            return $result->reject($reason);
                         }
                     },
                     sub {
                         my $error = shift;
                         $self->log->warn("Failed to call API ($error) for " .
                             $connection->clientAddress);
-                        $result->reject('authentication service failed');
+                        return $result->reject('authentication service failed');
                     });
             })->catch(sub {
                 my $msg = shift;
-                $self->log->error("Unexpecteldly dailed BodyPromise: $msg");
+                $self->log->error("Unexpecteldly failed BodyPromise: $msg");
             });
             return $result;
         });
