@@ -28,12 +28,12 @@ sub main {
         path => $opt->{logpath} || '/dev/stderr',
         level => $opt->{loglevel} || 'debug',
     );
-    $log->debug("Starting smtp-proxy #VERSION#");
     my $api = SMTPProxy::API->new(log => $log, url => $opt->{api});
     my $proxy = SMTPProxy->new(%$opt, api => $api);
     say "Waiting for connections on ". join (', ',@{$proxy->listen});
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
     $proxy->setup();
+    $log->debug("Starting smtp-proxy #VERSION#");
     Mojo::IOLoop->start();
 }
 
