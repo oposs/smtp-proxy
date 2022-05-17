@@ -11,22 +11,13 @@ has ua => sub { Mojo::UserAgent->new };
 
 sub check {
     my ($self, %args) = @_;
-    my $outcome = Mojo::Promise->new;
-    eval {
-        $self->ua->post($self->url, json => \%args, sub {
-            my ($ua, $tx) = @_;
-            if ($tx->success) {
-                $outcome->resolve($tx->result->json);
-            }
-            else {
-                $outcome->reject($tx->error->{message});
-            }
-        });
-    };
-    if ($@) {
-        $outcome->reject($@);
-    }
-    return $outcome;
+    return $self->ua->post_p($self->url, json => \%args)->then(sub {
+        my $tx = shift;
+        if ($tx->result->is_success) {
+            return $tx->result->json;
+        }
+        return Mojo::Promise->reject($tx->result->message);
+    });
 }
 
 1;
