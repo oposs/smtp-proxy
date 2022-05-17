@@ -33,6 +33,7 @@ sub main {
     say "Waiting for connections on ". join (', ',@{$proxy->listen});
     say "Will forward mails to " . $proxy->tohost . ":" . $proxy->toport;
     $proxy->setup();
+    $log->debug("Starting smtp-proxy #VERSION#");
     Mojo::IOLoop->start();
 }
 
