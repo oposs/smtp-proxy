@@ -180,6 +180,7 @@ sub _relayMail {
                 $resultPromise->reject($error);
             }
             else {
+                $self->log->debug($resp->message);
                 $self->log->info('Relayed mail successfully for ' .
                     $connection->clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
