@@ -1,3 +1,15 @@
+0.6.7 2022-08-29 10:48:52 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - added test to verify that the fix in 0.6.6 actually works
+   it works ... 
+
+0.6.6 2022-08-29 10:01:09 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - SECURITY! SMTP-Proxy did NOT clear the recipients list when
+   several mails were sent over the same connection. So successive
+   mails were sent to all previous recipients in mails submitted
+   in the previous connection
+
 0.6.5 2022-05-17 14:04:58 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - log more detail with authentication fails
