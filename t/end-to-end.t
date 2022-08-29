@@ -535,9 +535,9 @@ sub multiMail {
             my @calls = @{$testApi->calledWith};
             is scalar(@calls), 2, 'Made two calls to the API';
             is_deeply $calls[0]->{to}, ['r1@foobaz.com'],
-                'Correrct Recipients for first mail';
+                'Correct Recipients for first mail';
             is_deeply $calls[1]->{to}, ['r2@foobaz.com','r3@gugus.li'],
-                'Correrct Recipients for second mail';
+                'Correct Recipients for second mail';
             $done->();
         }
     );
