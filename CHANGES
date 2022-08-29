@@ -1,3 +1,15 @@
+0.6.5 2022-05-17 14:04:58 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - log more detail with authentication fails
+
+0.6.4 2022-05-17 11:54:21 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - initial log must happen AFTER privilege drop
+
+0.6.3 2022-05-17 11:40:28 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - update useragent implementation to be in sync with latest mojo recommentation
+
 0.6.2 2022-05-16 16:10:21 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - fix 0.6.0 regression ... return should return the rejection!

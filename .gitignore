@@ -32,3 +32,8 @@ thirdparty/*
 !thirdparty/Makefile.am
 
 distsecret
+*.xz
+*.sum
+*.txt
+.pls_cache
+DEADJOE

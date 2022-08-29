@@ -4,6 +4,7 @@ use Mojo::Base -base;
 use Mojo::JSON;
 use Mojo::Promise;
 use Mojo::UserAgent;
+use Mojo::Util qw(dumper);
 
 has [qw(log url)];
 
@@ -13,9 +14,11 @@ sub check {
     my ($self, %args) = @_;
     return $self->ua->post_p($self->url, json => \%args)->then(sub {
         my $tx = shift;
+        # $self->log->trace("Validation trace:",$tx->result->to_string);
         if ($tx->result->is_success) {
             return $tx->result->json;
         }
+        $self->log->debug("Validation Failed:".dumper($tx->result->json));
         return Mojo::Promise->reject($tx->result->message);
     });
 }
