@@ -50,8 +50,8 @@ sub setup {
         });
         $connection->mail(sub {
             my ($from, $parameters) = @_;
-            # reset the collected data except for the.
-            # it is possible to send multiple mails per connction!
+            # reset the collected data except for authentication.
+            # note, it is possible to send multiple mails per connction!
             %collected = (
                 username => $collected{username},
                 password => $collected{password},
