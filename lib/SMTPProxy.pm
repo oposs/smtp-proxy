@@ -50,6 +50,12 @@ sub setup {
         });
         $connection->mail(sub {
             my ($from, $parameters) = @_;
+            # reset the collected data except for authentication.
+            # note, it is possible to send multiple mails per connction!
+            %collected = (
+                username => $collected{username},
+                password => $collected{password},
+            );
             $collected{from} = $from;
             return Mojo::Promise->new->resolve;
         });
@@ -174,6 +180,7 @@ sub _relayMail {
                 $resultPromise->reject($error);
             }
             else {
+                $self->log->debug($resp->message);
                 $self->log->info('Relayed mail successfully for ' .
                     $connection->clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));

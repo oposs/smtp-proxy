@@ -13,7 +13,7 @@ use SMTPProxy;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 30;
+plan tests => 34;
 
 # Test infrastructure
 
@@ -107,7 +107,7 @@ sub runOneTestCase {
 # Tests
 
 runTestCases(\&allowedSimple, \&denied, \&allowedInsertHeaders, \&relayError,
-    \&transparency, \&allowedChangeFrom, \&allowedChangeHeaders, \&loginAuth);
+    \&transparency, \&allowedChangeFrom, \&allowedChangeHeaders, \&loginAuth,\&multiMail);
 
 sub allowedSimple {
     my $done = shift;
@@ -486,6 +486,58 @@ sub loginAuth {
             is $calls[0]->{password}, 's3cr3t',
                 'Correct password sent to API using login auth';
 
+            $done->();
+        }
+    );
+}
+
+sub multiMail {
+    my $done = shift;
+
+    $testApi->result({
+        allow => 1,
+        headers => []
+    });
+
+    my $smtp = Mojo::SMTP::Client->new(
+        address => $TEST_HOST,
+        port => $TEST_PROXY_PORT,
+        autodie => 1,
+        tls_verify => 0,
+    );
+    $smtp->send(
+        starttls => 1,
+        auth     => {type => 'login', login => 'fooser', password => 's3cr3t'},
+        from     => 'sender@foobar.com',
+        to       => ['r1@foobaz.com'],
+        data     => join("\r\n",
+                        'Subject: Some message subject',
+                        'From: from@foobar.com',
+                        'To: another@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+        from     => 'sender@foobar.com',
+        to       => ['r2@foobaz.com','r3@gugus.li'],
+        data     => join("\r\n",
+                        'Subject: Other Subject',
+                        'From: from@foobar.com',
+                        'To: basf@foobaz.com',
+                        '',
+                        'Some message text',
+                        'More message text'),
+
+        quit     => 1,
+        sub {
+            my ($smtp, $resp) = @_;
+            ok(!($resp->error), 'Allowed mail accepted by proxy using login auth');
+
+            my @calls = @{$testApi->calledWith};
+            is scalar(@calls), 2, 'Made two calls to the API';
+            is_deeply $calls[0]->{to}, ['r1@foobaz.com'],
+                'Correct Recipients for first mail';
+            is_deeply $calls[1]->{to}, ['r2@foobaz.com','r3@gugus.li'],
+                'Correct Recipients for second mail';
             $done->();
         }
     );
