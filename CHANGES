@@ -1,3 +1,7 @@
+0.7.1 2022-11-23 14:04:16 +0100 Tobias Oetiker <tobi@oetiker.ch>
+
+ - actually enable libev enventloop
+
 0.7.0 2022-11-19 00:06:36 +0100 Tobias Oetiker <tobi@oetiker.ch>
 
  - added EV eventloop for better performance

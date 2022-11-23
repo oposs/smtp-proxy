@@ -1,5 +1,10 @@
 #!/usr/bin/env perl
 
+BEGIN {
+   $ENV{MOJO_REACTOR} //= 'Mojo::Reactor::EV';
+   $ENV{LIBEV_FLAGS} //= 4;
+};
+
 use lib qw(); # PERL5LIB
 use FindBin; use lib "$FindBin::RealBin/../lib"; use lib "$FindBin::RealBin/../thirdparty/lib/perl5"; # LIBDIR
 

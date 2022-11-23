@@ -21,4 +21,4 @@ README.md COPYRIGHT: VERSION
 
 
 test:
-	prove -w
+   MOJO_REACTOR=Mojo::Reactor::EV LIBEV_FLAGS=4 prove -w
