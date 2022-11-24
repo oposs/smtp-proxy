@@ -1,6 +1,6 @@
 package SMTPProxy;
 
-use Mojo::Base -base;
+use Mojo::Base -base, -signatures;
 use Mojo::Log;
 use Mojo::Promise;
 use Mojo::SMTP::Client;
@@ -12,16 +12,14 @@ has [qw(
     smtplog credentials
 )];
 
-has log => sub {
-    my $self = shift;
+has log => sub ($self) {
     Mojo::Log->new(
         path => $self->{logpath} || '/dev/stderr',
-        level => $self->{loglevel} || 'debug',
+        level => $self->{loglevel} || 'trace',
     );
 };
 
-sub setup {
-    my $self = shift;
+sub setup ($self) {
     #warn dumper $self;
     my $server = SMTPProxy::SMTPServer->new(
         log => $self->log,
@@ -35,21 +33,19 @@ sub setup {
         require_auth => 1,
         timeout => 0,
     );
-    $server->setup(sub {
-        my $connection = shift;
-
+    $server->setup(sub ($connection) {
         # State the proxy collects to send to the API and target mail
         # server.
         my %collected;
-
-        $connection->auth(sub {
-            my ($authzid, $authcid, $password) = @_;
+        my $clientAddress = $connection->clientAddress;
+        my $log = $connection->log;
+        $connection->auth(sub ($authzid, $authcid, $password) {
             $collected{username} = $authcid;
             $collected{password} = $password;
-            return Mojo::Promise->new->resolve;
+            return Mojo::Promise->resolve;
         });
-        $connection->mail(sub {
-            my ($from, $parameters) = @_;
+        $connection->mail(sub ($from, $parameters) {
+
             # reset the collected data except for authentication.
             # note, it is possible to send multiple mails per connction!
             %collected = (
@@ -57,62 +53,59 @@ sub setup {
                 password => $collected{password},
             );
             $collected{from} = $from;
-            return Mojo::Promise->new->resolve;
+            return Mojo::Promise->resolve;
         });
-        $connection->rcpt(sub {
-            my ($to, $parameters) = @_;
+        $connection->rcpt(sub ($to, $parameters) {
             push @{$collected{to} //= []}, $to;
-            return Mojo::Promise->new->resolve;
+            return Mojo::Promise->resolve;
         });
-        $connection->data(sub {
-            my ($headersPromise, $bodyPromise) = @_;
+        $connection->data(sub ($headersPromise, $bodyPromise) {
             my $result = Mojo::Promise->new;
             my $apiResult;
-            $headersPromise->then(sub {
-                my $headers = shift;
+            $headersPromise->then(sub ($headers){
                 $collected{headers} = [
                     map {
                         if (/^([^:]+):\s*(.+)$/s) {
                             { name => $1, value => $2 }
                         }
                         else {
-                            $self->log->warn("Could not parse header '$_'");
+                            $log->warn("Could not parse header '$_'");
                             ()
                         }
                     } split /\r\n(?=$|\S)/, $headers
                 ];
-                $apiResult = $self->_callAPI(%collected);
+                $apiResult = $self->_callAPI($log,%collected);
             });
-            $bodyPromise->then(sub {
-                $collected{body} = shift;
+            $bodyPromise->then(sub ($body) {
+                $collected{body} = $body;
                 $apiResult->then(
                     sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
-                            return $self->_relayMail($result, $connection,
+                            return $self->_relayMail($log,$result, $clientAddress,
                                 $outcome, %collected);
                         }
                         else {
                             my $reason = $outcome->{reason};
-                            $self->log->info("Mail rejected by API ($reason) for " .
-                                $connection->clientAddress);
+                            $log->info("Mail rejected by API ($reason) for " .
+                                $clientAddress);
                             return $result->reject($reason);
                         }
                     },
                     sub {
                         my $error = shift;
-                        $self->log->warn("Failed to call API ($error) for " .
-                            $connection->clientAddress);
+                        $log->warn("Failed to call API ($error) for " .
+                            $clientAddress);
                         return $result->reject('authentication service failed');
                     });
             })->catch(sub {
                 my $msg = shift;
-                $self->log->error("Unexpecteldly failed BodyPromise: $msg");
+                $log->error("Unexpecteldly failed BodyPromise: $msg");
             });
             return $result;
         });
         $connection->vrfy(sub {
-            return Mojo::Promise->new->reject('Unimplemented');
+            return Mojo::Promise->reject('Unimplemented');
         });
         $connection->rset(sub {
             %collected = ();
@@ -121,8 +114,7 @@ sub setup {
     $self->_dropPrivs if $self->user;
 }
 
-sub _dropPrivs {
-    my $self = shift;
+sub _dropPrivs ($self) {
     my $user = $self->user;
     my ($uid, $gid) = (getpwnam $user)[2, 3];
     die "Cannot resolve username '$user': $!" unless $uid && $gid;
@@ -131,10 +123,9 @@ sub _dropPrivs {
     $self->log->info("Dropped privileges to user $user");
 }
 
-sub _callAPI {
-    my ($self, %collected) = @_;
-    $self->log->debug('Making call to auth/headers API');
-    return $self->api->check(
+sub _callAPI ($self,$log, %collected) {
+    $log->debug('Making call to auth/headers API');
+    return $self->api->check($log,
         username => $collected{username},
         password => $collected{password},
         from => $collected{from},
@@ -143,9 +134,7 @@ sub _callAPI {
     );
 }
 
-sub _relayMail {
-    my ($self, $resultPromise, $connection, $apiResult, %mail) = @_;
-
+sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
     # We should:
     # * Remove headers that the API headers result sets to undef/null
     # * Replace headers that the API headers result provides a value for
@@ -175,14 +164,14 @@ sub _relayMail {
             my ($smtp, $resp) = @_;
             my $error = $resp->error;
             if ($error) {
-                $self->log->info("Mail refused by relay server ($error) for " .
-                    $connection->clientAddress);
+                $log->info("Mail refused by relay server ($error) for " .
+                    $clientAddress);
                 $resultPromise->reject($error);
             }
             else {
-                $self->log->debug($resp->message);
-                $self->log->info('Relayed mail successfully for ' .
-                    $connection->clientAddress .
+                $log->debug($resp->message);
+                $log->info('Relayed mail successfully for ' .
+                    $clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
                 $resultPromise->resolve;
             }

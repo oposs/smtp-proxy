@@ -1,18 +1,18 @@
 package SMTPProxy::SMTPServer;
 
-use Mojo::Base -base;
+use Mojo::Base -base, -signatures;
 use Mojo::IOLoop;
 use SMTPProxy::SMTPServer::Connection;
 use Mojo::Util qw(dumper);
-
+# use Devel::Cycle;
+use Scalar::Util qw(weaken);
 
 has [qw(
     listen log tls_cert tls_key service_name require_starttls require_auth
     timeout smtplog credentials
 )];
 
-sub setup {
-    my ($self, $callback) = @_;
+sub setup ($self, $callback) {
     my $smtplogHandle;
     if ($self->smtplog) {
         my $file = $self->smtplog;
@@ -22,27 +22,38 @@ sub setup {
     for my $listen (@{$self->listen}){
         my ($ip,$port) = $listen =~ /^(\S*):([^\s:]+)$/ 
             or die "Could not parse $listen";
-        Mojo::IOLoop->server(
+        my $server;
+        $server = Mojo::IOLoop->server(
             { address => $ip, port => $port },
-            sub {
-                my ($loop, $stream, $id) = @_;
-
+            sub ($loop, $stream, $id) {
                 $stream->timeout($self->timeout) if defined $self->timeout;
                 my $handle = $stream->handle;
                 my $clientAddress = $handle->peerhost . ':' . $handle->peerport;
-                $self->log->debug("New incoming connection from $clientAddress");
-
+                my $log = $self->log->context("[$id]");
+                $log->debug("New incoming connection from $clientAddress");
                 my $connection = SMTPProxy::SMTPServer::Connection->new(
-                    loop => $loop,
+                    log => $log,
                     stream => $stream,
+                    require_starttls => $self->require_starttls,
                     id => $id,
-                    server => $self,
+                    require_auth => $self->require_auth,
+                    tls_cert => $self->tls_cert,
+                    tls_key => $self->tls_key,
+                    credentials => $self->credentials,
+                    service_name => $self->service_name,
                     clientAddress => $clientAddress,
                     smtplogHandle => $smtplogHandle,
+                    setupCallback => $callback,
                 );
-                $callback->($connection);
-                $connection->process;
-                $self->log->debug("Starting processing of request for $clientAddress");
+                # keeping a reverence to the connection object is
+                # important, otherwise it will be garbage collected
+                $stream->on(close => sub ($stream) {
+                         $log->debug("drop reference to connection (close)");
+                         weaken $connection;
+                     }
+                );
+
+                $log->debug("Starting processing of request for $clientAddress"); 
             }
         );
     }

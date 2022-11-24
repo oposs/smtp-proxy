@@ -1,6 +1,6 @@
 package SMTPProxy::API;
 
-use Mojo::Base -base;
+use Mojo::Base -base, -signatures;
 use Mojo::JSON;
 use Mojo::Promise;
 use Mojo::UserAgent;
@@ -8,17 +8,16 @@ use Mojo::Util qw(dumper);
 
 has [qw(log url)];
 
-has ua => sub { Mojo::UserAgent->new };
+my $ua = Mojo::UserAgent->new;
 
-sub check {
-    my ($self, %args) = @_;
-    return $self->ua->post_p($self->url, json => \%args)->then(sub {
-        my $tx = shift;
+sub check ($self,$log, %args) {
+    return $ua->post_p($self->url, json => \%args)->then(sub ($tx) {
+        $log->debug('validation call to '.$self->url.' returned '.$tx->result->code);
         # $self->log->trace("Validation trace:",$tx->result->to_string);
         if ($tx->result->is_success) {
             return $tx->result->json;
         }
-        $self->log->debug("Validation Failed:".dumper($tx->result->json));
+        $log->debug("Validation Failed:".dumper($tx->result->json));
         return Mojo::Promise->reject($tx->result->message);
     });
 }

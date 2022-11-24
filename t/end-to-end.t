@@ -20,7 +20,7 @@ plan tests => 34;
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PROXY_PORT = Mojo::IOLoop::Server->generate_port;
 my $TEST_TO_PORT = Mojo::IOLoop::Server->generate_port;
-my $TEST_LOG = Mojo::Log->new(level => 'warn');
+my $TEST_LOG = Mojo::Log->new(level => 'debug');
 
 my $testApi = FakeAPI->new;
 my %toSMTPServerSent;

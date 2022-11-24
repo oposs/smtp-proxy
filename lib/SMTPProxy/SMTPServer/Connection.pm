@@ -1,6 +1,6 @@
 package SMTPProxy::SMTPServer::Connection;
 
-use Mojo::Base -base;
+use Mojo::Base -base, -signatures;
 use Mojo::IOLoop;
 use Mojo::IOLoop::Stream;
 use Mojo::IOLoop::TLS;
@@ -8,11 +8,12 @@ use Mojo::Promise;
 use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
 use SMTPProxy::SMTPServer::ReplyFormatter;
+use Scalar::Util qw(weaken);
 
-has [qw(
-    loop stream id server clientAddress auth mail rcpt data vrfy rset quit
-    smtplogHandle
-)];
+has [qw(service_name require_starttls tls_cert tls_key require_auth
+     id log credentials clientAddress auth mail rcpt data vrfy rset quit
+    smtplogHandle stream dataEater setupCallback state)];
+
 
 # States we may be in.
 use constant {
@@ -25,43 +26,51 @@ use constant {
     WANT_DATA           => 6,
 };
 
-sub log {
-    shift->server->log
-}
+has state => sub ($self) {
+    return WANT_INITIAL_EHLO;
+};
 
-sub process {
-    my $self = shift;
-    $self->_sendReply(220, $self->server->service_name . ' SMTP service ready');
-    $self->{state} = WANT_INITIAL_EHLO;
-    $self->_startReader();
+sub new ($class, %args) {
+    my $self = $class->SUPER::new(%args);
+    $self->_sendReply(220, $self->service_name . ' SMTP service ready');
+    $self->_setupReader;
     $self->_setupClose;
+    $self->setupCallback->($self);
+    return $self;
 }
 
-sub _setupClose {
-    my $self = shift;
-    $self->stream->on('close',
-        sub {
+sub _setupClose ($self) {
+    weaken $self;
+    $self->stream->on('close' => sub ($stream) {
             Mojo::IOLoop->remove($self->id);
-            %$self = ();
-        });
-    $self->stream->on('error',
-        sub {
-            Mojo::IOLoop->remove($self->id);
-            %$self = ();
-        });
+        }
+    );
+
+    $self->stream->on('error' => sub ($stream,$err) {
+            $self->log->error("Error on stream: $err");
+            #$stream->close;
+            #Mojo::IOLoop->remove($self->id);
+        }
+    );
+
+    $self->stream->on('timeout' => sub ($stream) {
+            $self->log->error("Timeout on stream");
+            #$stream->close;
+            #Mojo::IOLoop->remove($self->id);
+        }
+    );
 }
 
-sub _startReader {
-    my $self = shift;
-    $self->stream->on(read => sub {
+sub _setupReader ($self) {
+    my $buffer = '';
+    weaken $self;
+    $self->stream->on(read => sub ($stream, $bytes) {
         # Append bytes to input buffer.
-        my ($stream, $bytes) = @_;
-        state $buffer;
         $buffer .= $bytes;
 
         # If we have an active data eater, provide it to that.
-        if ($self->{dataEater}) {
-            $buffer = $self->{dataEater}->($buffer);
+        if ($self->dataEater) {
+            $buffer = $self->dataEater->($buffer);
         }
 
         # Otherwise, try to parse a command.
@@ -72,7 +81,7 @@ sub _startReader {
             if ($self->smtplogHandle) {
                 my $parsed = substr($initialBuffer, 0,
                     length($initialBuffer) - length($buffer));
-                if (!$self->server->credentials && $command->{command} eq 'AUTH') {
+                if (!$self->credentials && $command->{command} eq 'AUTH') {
                     $parsed =~ s/^(AUTH\s+\w+\s+).+$/$1\[REDACTED]/;
                 }
                 $self->_writeSmtpLogEntry(0, $parsed);
@@ -92,8 +101,7 @@ sub _startReader {
     });
 }
 
-sub _sendReply {
-    my ($self, $code, @args) = @_;
+sub _sendReply ($self, $code, @args) {
     my $p = Mojo::Promise->new;
     my $reply = formatReply($code, @args);
     if ($self->smtplogHandle) {
@@ -103,8 +111,7 @@ sub _sendReply {
     return $p;
 }
 
-sub _writeSmtpLogEntry {
-    my ($self, $sent, $entry) = @_;
+sub _writeSmtpLogEntry ($self, $sent, $entry) {
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
     my $timestamp = sprintf "%4d-%02d-%02d %02d:%02d:%02d", $year + 1900, $mon + 1,
         $mday, $hour, $min, $sec;
@@ -127,8 +134,7 @@ my @STATE_METHODS = (
     '_processData',
 );
 
-sub _processCommand {
-    my ($self, $command) = @_;
+sub _processCommand ($self, $command) {
     my $commandName = $command->{command};
 
     # QUIT, NOOP, and VRFY are valid in any state.
@@ -137,7 +143,7 @@ sub _processCommand {
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
         $callback->() if $callback;
         $self->_sendReply(221,
-            $self->server->service_name . ' closing transmission channel');
+            $self->service_name . ' closing transmission channel');
     }
     elsif ($commandName eq 'NOOP') {
         $self->log->debug("Processing NOOP for " . $self->clientAddress);
@@ -164,91 +170,87 @@ sub _processCommand {
         my $callback = $self->rset;
         $self->log->debug("Processing RSET for " . $self->clientAddress);
         $callback->() if $callback;
-        if ($self->{state} > WANT_MAIL) {
-            $self->{state} = WANT_MAIL;
+        if ($self->state > WANT_MAIL) {
+            $self->state(WANT_MAIL);
         }
         $self->_sendReply(250, 'OK');
     }
     else {
         # Go by state.
-        my $methodName = @STATE_METHODS[$self->{state}];
+        my $methodName = @STATE_METHODS[$self->state];
         $self->$methodName($command);
     }
 }
 
-sub _processInitialEhlo {
-    my ($self, $command) = @_;
+sub _processInitialEhlo ($self, $command) {
     my $commandName = $command->{command};
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->_sendReply(250,
-            $self->server->service_name . ' offers a warm hug of welcome',
+            $self->service_name . ' offers a warm hug of welcome',
             'STARTTLS',
-            ($self->server->require_starttls ? () : 'AUTH PLAIN LOGIN'));
-        $self->{state} = WANT_STARTTLS;
+            ($self->require_starttls ? () : 'AUTH PLAIN LOGIN'));
+        $self->state(WANT_STARTTLS);
     }
     else {
         $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
 
-sub _processStartTLS {
-    my ($self, $command) = @_;
+sub _processStartTLS ($self, $command) {
     my $commandName = $command->{command};
     if ($commandName eq 'STARTTLS') {
         $self->_sendReply(220, 'Go ahead')->then(sub {
             my $tls = Mojo::IOLoop::TLS->new($self->stream->handle);
-            $tls->on(upgrade => sub {
-                my ($tls, $new_handle) = @_;
+            weaken $self;
+            $tls->on(upgrade => sub ($tls, $new_handle) {
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
                 $self->stream(Mojo::IOLoop::Stream->new($new_handle));
-                $self->{state} = WANT_TLS_EHLO;
-                $self->_startReader();
+                $self->state(WANT_TLS_EHLO);
+                $self->_setupReader;
                 $self->stream->start;
                 $self->_setupClose;
             });
-            $tls->on(error => sub {
-                my ($tls, $err) = @_;
+            $tls->on(error => sub ($tls, $err) {
                 $self->log->info("Failed TLS upgrade for " . $self->clientAddress . ": $err");
+                $self->stream->emit('error', $err)->close;
                 Mojo::IOLoop->remove($self->id);
             });
             $tls->negotiate(
                 server => 1,
-                tls_cert => $self->server->tls_cert,
-                tls_key => $self->server->tls_key
+                tls_cert => $self->tls_cert,
+                tls_key => $self->tls_key
             );
             $self->log->debug("Starting TLS upgrade for " . $self->clientAddress);
         });
     }
-    elsif ($self->server->require_starttls) {
+    elsif ($self->require_starttls) {
         $self->_sendReply(530, 'Must issue a STARTTLS command first');
     }
     else {
-        $self->{state} = WANT_AUTH;
+        $self->state(WANT_AUTH);
         $self->_processAuth($command);
     }
 }
 
-sub _processTLSEhlo {
-    my ($self, $command) = @_;
+sub _processTLSEhlo ($self, $command) {
     my $commandName = $command->{command};
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->_sendReply(250,
-            $self->server->service_name . ' offers another warm hug of welcome',
+            $self->service_name . ' offers another warm hug of welcome',
             'AUTH PLAIN LOGIN');
-        $self->{state} = WANT_AUTH;
+        $self->state(WANT_AUTH);
     }
     else {
         # RFC 3207 says that the client SHOULD sent an EHLO after STARTTLS
         # has done the TLS handshake. Alas, some clients do not do this,
         # and proceed directly to sending an AUTH command or something else.
         # If that happens, set state to WANT_AUTH and delegate.
-        $self->{state} = WANT_AUTH;
+        $self->state(WANT_AUTH);
         $self->_processAuth($command);
     }
 }
 
-sub _processAuth {
-    my ($self, $command) = @_;
+sub _processAuth ($self, $command) {
     my $commandName = $command->{command};
     if ($commandName eq 'AUTH') {
         if ($command->{mechanism} eq 'PLAIN') {
@@ -257,11 +259,11 @@ sub _processAuth {
                 $self->_makeAuthPlainCallback($command->{initial});
             }
             else {
-                $self->{dataEater} = sub {
-                    my $buffer = shift;
+                weaken $self;
+                $self->dataEater(sub ($buffer) {
                     if ($buffer =~ /^(.+?)\r?\n$/) {
                         my $auth = $1;
-                        $self->{dataEater} = undef;
+                        $self->dataEater(undef);
                         $self->_logAuthenticationData($auth);
                         $self->_makeAuthPlainCallback($auth);
                         return '';
@@ -273,15 +275,15 @@ sub _processAuth {
                     else {
                         return $buffer;
                     }
-                };
+                });
                 $self->_sendReply(334, '');
             }
         }
         elsif ($command->{mechanism} eq 'LOGIN') {
             $self->log->debug("Processing AUTH LOGIN for " . $self->clientAddress);
             my $usernameBase64;
-            $self->{dataEater} = sub {
-                my $buffer = shift;
+            weaken $self;
+            $self->dataEater(sub ($buffer) {
                 if ($buffer =~ /^(.+?)\r?\n$/) {
                     my $auth = $1;
                     $self->_logAuthenticationData($auth);
@@ -289,7 +291,7 @@ sub _processAuth {
                         my $passwordBase64 = $auth;
                         $self->log->debug("Received AUTH LOGIN password for " .
                             $self->clientAddress);
-                        $self->{dataEater} = undef;
+                        $self->dataEater(undef);
                         $self->_makeAuthLoginCallback($usernameBase64, $passwordBase64);
                         return '';
                     }
@@ -309,7 +311,7 @@ sub _processAuth {
                 else {
                     return $buffer;
                 }
-            };
+            });
             $self->_sendReply(334, encode_base64('Username:', ''));
         }
         else {
@@ -318,36 +320,32 @@ sub _processAuth {
             $self->_sendReply(504, 'Authentication mechanism not supported');
         }
     }
-    elsif ($self->server->require_auth) {
+    elsif ($self->require_auth) {
         $self->log->debug("Authentication required sent to " . $self->clientAddress);
         $self->_sendReply(530, 'Authentication required');
     }
     else {
-        $self->{state} = WANT_MAIL;
+        $self->state(WANT_MAIL);
         $self->_processMail($command);
     }
 }
 
-sub _logAuthenticationData{
-    my ($self, $auth) = @_;
+sub _logAuthenticationData ($self, $auth) {
     if ($self->smtplogHandle) {
-        $self->_writeSmtpLogEntry(0, $self->server->credentials ? $auth : '[REDACTED]');
+        $self->_writeSmtpLogEntry(0, $self->credentials ? $auth : '[REDACTED]');
     }
 }
 
-sub _makeAuthPlainCallback {
-    my ($self, $base64) = @_;
+sub _makeAuthPlainCallback ($self, $base64) {
     $self->_makeAuthCallback(split "\0", decode_base64($base64));
 }
 
-sub _makeAuthLoginCallback {
-    my ($self, $usernameBase64, $passwordBase64) = @_;
+sub _makeAuthLoginCallback ($self, $usernameBase64, $passwordBase64) {
     $self->_makeAuthCallback('', decode_base64($usernameBase64),
         decode_base64($passwordBase64));
 }
 
-sub _makeAuthCallback {
-    my ($self, @args) = @_;
+sub _makeAuthCallback ($self, @args) {
     my $authCallback = $self->auth;
     if ($authCallback) {
         my $promise = $authCallback->(@args);
@@ -355,7 +353,7 @@ sub _makeAuthCallback {
             sub {
                 $self->_sendReply(235, 'Authentication successful');
                 $self->log->debug('Successfully authenticated ' . $self->clientAddress);
-                $self->{state} = WANT_MAIL;
+                $self->state(WANT_MAIL);
             },
             sub {
                 $self->_sendReply(535, 'Authentication credentials invalid');
@@ -368,15 +366,14 @@ sub _makeAuthCallback {
     }
 }
 
-sub _processMail {
-    my ($self, $command) = @_;
+sub _processMail ($self, $command) {
     if ($command->{command} eq 'MAIL') {
         my $promise = $self->mail->($command->{from}, $command->{parameters});
         $promise->then(
             sub {
                 $self->_sendReply(250, 'OK');
                 $self->log->debug('Accepted MAIL command from ' . $self->clientAddress);
-                $self->{state} = WANT_RCPT;
+                $self->state(WANT_RCPT);
             },
             sub {
                 my $error = shift;
@@ -390,15 +387,14 @@ sub _processMail {
     }
 }
 
-sub _processRcpt {
-    my ($self, $command) = @_;
+sub _processRcpt  ($self, $command)  {
     if ($command->{command} eq 'RCPT') {
         my $promise = $self->rcpt->($command->{to}, $command->{parameters});
         $promise->then(
             sub {
                 $self->_sendReply(250, 'OK');
                 $self->log->debug('Accepted RCPT command from ' . $self->clientAddress);
-                $self->{state} = WANT_DATA;
+                $self->state(WANT_DATA);
             },
             sub {
                 my $error = shift;
@@ -412,8 +408,7 @@ sub _processRcpt {
     }
 }
 
-sub _processData {
-    my ($self, $command) = @_;
+sub _processData ($self, $command) {
     if ($command->{command} eq 'RCPT') {
         # An extra recipient; fine.
         $self->_processRcpt($command);
@@ -424,8 +419,8 @@ sub _processData {
         my $promise = $self->data->($headersPromise, $bodyPromise);
         my $headersDone = 0;
         my $handled = '';
-        $self->{dataEater} = sub {
-            my $buffer = shift;
+        weaken $self;
+        $self->dataEater(sub ($buffer) {
             for my $line (split(/(?<=\n)/, $buffer)) {
                 # Defer handling incomplete lines.
                 return $line unless $line =~ /\n$/;
@@ -439,18 +434,18 @@ sub _processData {
                     else {
                         $bodyPromise->resolve($handled);
                     }
-                    $self->{dataEater} = '';
+                    $self->dataEater(undef);
                     $promise->then(
                         sub {
                             $self->_sendReply(250, 'OK');
-                            $self->{state} = WANT_MAIL;
+                            $self->state(WANT_MAIL);
                             $self->log->debug('Accepted MAIL command for ' . $self->clientAddress);
                         },
                         sub {
                             my $message = shift;
                             $self->_sendReply(550, $message // '');
                             $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
-                            $self->{state} = WANT_MAIL;
+                            $self->state(WANT_MAIL);
                         }
                     );
                 }
@@ -469,13 +464,18 @@ sub _processData {
                     $handled .= $line;
                 }
             }
-        };
+        });
         $self->_sendReply(354, '');
     }
     else {
         $self->_sendReply(503, 'Bad sequence of commands');
     }
 }
+
+sub DESTROY ($self) {
+    $self->log && $self->log->debug(__PACKAGE__ . " destroyed");
+    return;
+};
 
 1;
 

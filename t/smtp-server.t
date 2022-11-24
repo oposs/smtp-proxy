@@ -19,7 +19,7 @@ my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = Mojo::IOLoop::Server->generate_port;
 
 my $server = SMTPProxy::SMTPServer->new(
-    log => Mojo::Log->new(level => 'warn'),
+    log => Mojo::Log->new(level => 'debug'),
     listen => [$TEST_HOST.':'.$TEST_PORT],
     tls_ca => "$FindBin::Bin/certs-and-keys/ca.crt",
     tls_cert => "$FindBin::Bin/certs-and-keys/server.crt",
