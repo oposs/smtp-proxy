@@ -54,6 +54,7 @@ sub _setupClose ($self) {
     );
 
     $self->stream->on('timeout' => sub ($stream) {
+            # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout
             $self->log->error("Timeout on stream");
             #$stream->close;
             #Mojo::IOLoop->remove($self->id);
@@ -205,6 +206,9 @@ sub _processStartTLS ($self, $command) {
             $tls->on(upgrade => sub ($tls, $new_handle) {
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
                 $self->stream(Mojo::IOLoop::Stream->new($new_handle));
+                # timeout a stream after 5 minutes not after 15 seconds
+                # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout1
+                $self->stream->timeout(600);
                 $self->state(WANT_TLS_EHLO);
                 $self->_setupReader;
                 $self->stream->start;

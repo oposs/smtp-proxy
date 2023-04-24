@@ -302,7 +302,7 @@ sub relayError {
             ok($resp->error, 'Mail did not send due to relay server rejection');
             is $toSMTPServerSent{from}, 'sender@foobar.com',
                 'Really did try to call relay server';
-            like $resp->error, qr/Socket closed unexpectedly by remote side/, # Sorry, I don't send from there/,
+            like $resp->error, qr/Inactivity timeout/, # Sorry, I don't send from there/,
                 'Error text returned from relay server is sent onwards';
             $done->();
         }
