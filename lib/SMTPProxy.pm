@@ -166,6 +166,9 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
             if ($error) {
                 $log->info("Mail refused by relay server ($error) for " .
                     $clientAddress);
+                $log->info("MAIL api: ".dumper($apiResult)." orig: $mail{from}");
+                $log->info("RCPT ".dumper($mail{to}));
+                $log->info("Headers\n".$formattedHeaders);
                 $resultPromise->reject($error);
             }
             else {
