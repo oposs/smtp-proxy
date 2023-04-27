@@ -1,6 +1,0 @@
-prove -w
-t/end-to-end.t ... ok
-t/smtp-server.t .. ok
-All tests successful.
-Files=2, Tests=47, 15 wallclock secs ( 0.01 usr  0.00 sys +  0.48 cusr  0.09 csys =  0.58 CPU)
-Result: PASS
