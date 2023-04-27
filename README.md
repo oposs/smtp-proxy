@@ -38,6 +38,26 @@ or
 }
 ```
 
+## Installation
+
+The smtp-proxy comes with the usual automake infrastructure. To build it:
+
+```console
+git clone https://github.com/oposs/smtp-proxy.git
+cd smtp-proxy
+./boostrap
+./configure --prefix=/your/install/path
+make install
+```
+
+You can also create a Docker image:
+
+```console
+git clone https://github.com/oposs/smtp-proxy.git
+cd smtp-proxy
+./build-docker.sh
+```
+
 ## Usage
 
 `smtpproxy.pl` *options*
