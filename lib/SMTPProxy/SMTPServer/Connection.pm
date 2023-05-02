@@ -145,6 +145,7 @@ sub _processCommand ($self, $command) {
         $callback->() if $callback;
         $self->_sendReply(221,
             $self->service_name . ' closing transmission channel');
+        $self->stream->close_gracefully;
     }
     elsif ($commandName eq 'NOOP') {
         $self->log->debug("Processing NOOP for " . $self->clientAddress);
@@ -301,7 +302,7 @@ sub _processAuth ($self, $command) {
                     }
                     else {
                         
-                        $self->log->debug("Received AUTH LOGIN username for " .
+                        $self->log->debug("Received AUTH LOGIN username ($auth) for " .
                             $self->clientAddress);
                         $usernameBase64 = $auth;
                         $self->_sendReply(334, encode_base64('Password:', ''));
@@ -432,10 +433,12 @@ sub _processData ($self, $command) {
                 # If it's a '.' then it's the end of the message.
                 if ($line =~ /^\.\r?\n$/) {
                     if (!$headersDone) {
+                        $self->log->debug("Header received (empty Body). Resolving Header Promise and Empty Body Promise.");
                         $headersPromise->resolve($handled);
                         $bodyPromise->resolve('');
                     }
                     else {
+                        $self->log->debug("Body received. Resolving Body Promise.");
                         $bodyPromise->resolve($handled);
                     }
                     $self->dataEater(undef);
@@ -457,6 +460,7 @@ sub _processData ($self, $command) {
                 # If we're awaiting headers and we get an empty line, then
                 # we're done with the headers.
                 elsif (!$headersDone && $line =~ /^\r?\n$/) {
+                    $self->log->debug("Header received. Resolving Header Promise");
                     $headersPromise->resolve($handled);
                     $handled = '';
                     $headersDone = 1;

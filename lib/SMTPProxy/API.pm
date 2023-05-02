@@ -17,7 +17,9 @@ sub check ($self,$log, %args) {
         if ($tx->result->is_success) {
             return $tx->result->json;
         }
-        $log->debug("Validation Failed. Req:".dumper(\%args)." Res:".dumper($tx->result->json));
+        $log->debug("Validation Failed");
+        $log->debug("req: ".$_) for split /\n/, dumper(\%args);
+        $log->debug("res: ".$_) for split /\n/, dumper($tx->result->json);
         return Mojo::Promise->reject($tx->result->message);
     });
 }
