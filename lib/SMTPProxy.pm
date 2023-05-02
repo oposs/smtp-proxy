@@ -82,25 +82,31 @@ sub setup ($self) {
                     sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
-                            return $self->_relayMail($log,$result, $clientAddress,
+                            $log->debug("Relaying Mail to upstream SMTP Server");
+                            $self->_relayMail($log,$result, $clientAddress,
                                 $outcome, %collected);
+                            return;
                         }
                         else {
                             my $reason = $outcome->{reason};
                             $log->info("Mail rejected by API ($reason) for " .
                                 $clientAddress);
-                            return $result->reject($reason);
+                            $log->debug("INPUT $_") for split /\n/, dumper(\%collected);
+                            $result->reject($reason);
+                            return;
                         }
                     },
                     sub {
                         my $error = shift;
                         $log->warn("Failed to call API ($error) for " .
                             $clientAddress);
-                        return $result->reject('authentication service failed');
+                        $result->reject('authentication service failed');
+                        return;
                     });
             })->catch(sub {
                 my $msg = shift;
                 $log->error("Unexpecteldly failed BodyPromise: $msg");
+                $result->reject($msg);
             });
             return $result;
         });
@@ -166,19 +172,20 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
             if ($error) {
                 $log->info("Mail refused by relay server ($error) for " .
                     $clientAddress);
-                $log->info("MAIL api: ".dumper($apiResult)." orig: $mail{from}");
-                $log->info("RCPT ".dumper($mail{to}));
-                $log->info("Headers\n".$formattedHeaders);
+                $log->debug("Mail $_") for split /\n/, dumper(\%mail);
+                $log->debug("ApiResult $_") for split /\n/, dumper($apiResult);
                 $resultPromise->reject($error);
             }
             else {
-                $log->debug($resp->message);
+                $log->debug("Upstream server says: ".$resp->message);
                 $log->info('Relayed mail successfully for ' .
                     $clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
                 $resultPromise->resolve;
             }
-        });
+        }
+    );
+    return;
 }
 
 1;
