@@ -53,11 +53,11 @@ sub setup ($self) {
                 password => $collected{password},
             );
             $collected{from} = $from;
-            return Mojo::Promise->resolve;
+            return Mojo::Promise->resolve('got MAIL');
         });
         $connection->rcpt(sub ($to, $parameters) {
             push @{$collected{to} //= []}, $to;
-            return Mojo::Promise->resolve;
+            return Mojo::Promise->resolve('got RCPT');
         });
         $connection->data(sub ($headersPromise, $bodyPromise) {
             my $result = Mojo::Promise->new;
@@ -91,7 +91,7 @@ sub setup ($self) {
                             my $reason = $outcome->{reason};
                             $log->info("Mail rejected by API ($reason) for " .
                                 $clientAddress);
-                            $log->debug("INPUT $_") for split /\n/, dumper(\%collected);
+                            $log->debug("INPUT $_") for split /\n/, dumper({%collected,exists $collected{password} ? ( password => '*******' ) : (), exists $collected{body} ? ( body => '...' ): ()} );
                             $result->reject($reason);
                             return;
                         }
@@ -161,6 +161,16 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
         port => $self->toport,
         autodie => 1,
     );
+    my $last_ok_message = '';
+    $smtp->inactivity_timeout(60); # relax :)
+    my $first_ok_skip;
+    $smtp->on(response => sub ($smtp, $cmd, $resp) {
+        if ($cmd == Mojo::SMTP::Client::CMD_OK) {
+           # and after first response others should be fast enough
+           $last_ok_message = $resp if $resp and $first_ok_skip;
+           $first_ok_skip = 1;
+        }
+    });
     $smtp->send(
         from     => $apiResult->{from} || $mail{from},
         to       => $mail{to},
@@ -172,16 +182,16 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
             if ($error) {
                 $log->info("Mail refused by relay server ($error) for " .
                     $clientAddress);
-                $log->debug("Mail $_") for split /\n/, dumper(\%mail);
+                $log->debug("Mail $_") for split /\n/, dumper({%mail, exists $mail{password} ? (password  => '*****') : (), body => '...'});
                 $log->debug("ApiResult $_") for split /\n/, dumper($apiResult);
-                $resultPromise->reject($error);
+                return $resultPromise->reject($error);
             }
             else {
-                $log->debug("Upstream server says: ".$resp->message);
+                $log->debug("Upstream server says: ".$resp->message. " ($last_ok_message)");
                 $log->info('Relayed mail successfully for ' .
                     $clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
-                $resultPromise->resolve;
+                $resultPromise->resolve($last_ok_message // $resp->message);
             }
         }
     );

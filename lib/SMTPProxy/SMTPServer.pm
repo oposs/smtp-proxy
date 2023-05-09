@@ -48,7 +48,7 @@ sub setup ($self, $callback) {
                 # keeping a reverence to the connection object is
                 # important, otherwise it will be garbage collected
                 $stream->on(close => sub ($stream) {
-                         $log->debug("drop reference to connection (close)");
+                         $log->debug("connection closed");
                          weaken $connection;
                      }
                 );

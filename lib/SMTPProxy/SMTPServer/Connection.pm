@@ -65,12 +65,17 @@ sub _setupClose ($self) {
 sub _setupReader ($self) {
     my $buffer = '';
     weaken $self;
+    my $mb_logged = 1;
     $self->stream->on(read => sub ($stream, $bytes) {
         # Append bytes to input buffer.
         $buffer .= $bytes;
-
         # If we have an active data eater, provide it to that.
         if ($self->dataEater) {
+            my $mb = sprintf("%.1f", length($buffer) / 1e6)+0;
+            if ($mb > $mb_logged) {
+                $self->log->debug("received $mb MB data");
+                $mb_logged++;
+            }   
             $buffer = $self->dataEater->($buffer);
         }
 
@@ -207,8 +212,8 @@ sub _processStartTLS ($self, $command) {
             $tls->on(upgrade => sub ($tls, $new_handle) {
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
                 $self->stream(Mojo::IOLoop::Stream->new($new_handle));
-                # timeout a stream after 5 minutes not after 15 seconds
-                # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout1
+                # timeout a stream after 10 minutes not after 15 seconds
+                # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout
                 $self->stream->timeout(600);
                 $self->state(WANT_TLS_EHLO);
                 $self->_setupReader;
@@ -302,7 +307,7 @@ sub _processAuth ($self, $command) {
                     }
                     else {
                         
-                        $self->log->debug("Received AUTH LOGIN username ($auth) for " .
+                        $self->log->debug("Received AUTH LOGIN username (".decode_base64($auth).") for " .
                             $self->clientAddress);
                         $usernameBase64 = $auth;
                         $self->_sendReply(334, encode_base64('Password:', ''));
@@ -438,20 +443,19 @@ sub _processData ($self, $command) {
                         $bodyPromise->resolve('');
                     }
                     else {
-                        $self->log->debug("Body received. Resolving Body Promise.");
+                        $self->log->debug("Body received ". length($handled) . ' Bytes. Resolving Body Promise.');
                         $bodyPromise->resolve($handled);
                     }
                     $self->dataEater(undef);
                     $promise->then(
-                        sub {
-                            $self->_sendReply(250, 'OK');
+                        sub ($message = '???') {
+                            $self->_sendReply(250, 'OK: ' . $message);
                             $self->state(WANT_MAIL);
-                            $self->log->debug('Accepted MAIL command for ' . $self->clientAddress);
+                            $self->log->debug('Accepted MAIL command for ' . $self->clientAddress . ' ' . $message);
                         },
-                        sub {
-                            my $message = shift;
+                        sub ($message =  undef) {
                             $self->_sendReply(550, $message // '');
-                            $self->log->debug('MAIL command rejected for ' . $self->clientAddress);
+                            $self->log->debug('MAIL command rejected for ' . $self->clientAddress  . ' ' . $message);
                             $self->state(WANT_MAIL);
                         }
                     );
@@ -473,7 +477,7 @@ sub _processData ($self, $command) {
                 }
             }
         });
-        $self->_sendReply(354, '');
+        $self->_sendReply(354, 'End data with <CR><LF>.<CR><LF>');
     }
     else {
         $self->_sendReply(503, 'Bad sequence of commands');
