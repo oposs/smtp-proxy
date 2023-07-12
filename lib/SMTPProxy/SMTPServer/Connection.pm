@@ -231,6 +231,10 @@ sub _processStartTLS ($self, $command) {
                 tls_key => $self->tls_key
             );
             $self->log->debug("Starting TLS upgrade for " . $self->clientAddress);
+        })->catch(sub ($err) {
+            $self->log->info("Failed to TLS for " . $self->clientAddress . ": $err");
+            $self->stream->emit('error', $_[0])->close;
+            Mojo::IOLoop->remove($self->id);
         });
     }
     elsif ($self->require_starttls) {
