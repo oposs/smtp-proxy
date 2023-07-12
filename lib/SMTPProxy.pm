@@ -75,10 +75,15 @@ sub setup ($self) {
                     } split /\r\n(?=$|\S)/, $headers
                 ];
                 $apiResult = $self->_callAPI($log,%collected);
+                return;
+            })->catch(sub {
+                my $msg = shift;
+                $log->error("Unexpecteldly failed HeadersPromise: $msg");
+                $result->reject($msg);
             });
             $bodyPromise->then(sub ($body) {
                 $collected{body} = $body;
-                $apiResult->then(
+                return $apiResult->then(
                     sub {
                         my $outcome = shift;
                         if ($outcome->{allow}) {
@@ -102,7 +107,8 @@ sub setup ($self) {
                             $clientAddress);
                         $result->reject('authentication service failed');
                         return;
-                    });
+                    }
+                );
             })->catch(sub {
                 my $msg = shift;
                 $log->error("Unexpecteldly failed BodyPromise: $msg");
