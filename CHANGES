@@ -1,3 +1,8 @@
+0.7.6 2023-07-12 17:24:04 +0200 Tobias Oetiker <tobi@oetiker.ch>
+
+ - raise credmgr timeout to 60 seconds
+ - better handling of lost connections
+
 0.7.5 2023-06-19 17:20:21 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - add catch rule to STARTTLS upgrade promise
