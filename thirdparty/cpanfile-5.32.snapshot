@@ -54,28 +54,28 @@ DISTRIBUTIONS
       perl 5.006
       strict 0
       warnings 0
-  IO-Socket-SSL-2.076
-    pathname: S/SU/SULLR/IO-Socket-SSL-2.076.tar.gz
+  IO-Socket-SSL-2.083
+    pathname: S/SU/SULLR/IO-Socket-SSL-2.083.tar.gz
     provides:
-      IO::Socket::SSL 2.076
+      IO::Socket::SSL 2.083
       IO::Socket::SSL::Intercept 2.056
-      IO::Socket::SSL::OCSP_Cache 2.076
-      IO::Socket::SSL::OCSP_Resolver 2.076
+      IO::Socket::SSL::OCSP_Cache 2.083
+      IO::Socket::SSL::OCSP_Resolver 2.083
       IO::Socket::SSL::PublicSuffix undef
-      IO::Socket::SSL::SSL_Context 2.076
-      IO::Socket::SSL::SSL_HANDLE 2.076
-      IO::Socket::SSL::Session_Cache 2.076
-      IO::Socket::SSL::Trace 2.076
+      IO::Socket::SSL::SSL_Context 2.083
+      IO::Socket::SSL::SSL_HANDLE 2.083
+      IO::Socket::SSL::Session_Cache 2.083
+      IO::Socket::SSL::Trace 2.083
       IO::Socket::SSL::Utils 2.015
     requirements:
       ExtUtils::MakeMaker 0
       Mozilla::CA 0
       Net::SSLeay 1.46
       Scalar::Util 0
-  Module-Build-Tiny-0.039
-    pathname: L/LE/LEONT/Module-Build-Tiny-0.039.tar.gz
+  Module-Build-Tiny-0.046
+    pathname: L/LE/LEONT/Module-Build-Tiny-0.046.tar.gz
     provides:
-      Module::Build::Tiny 0.039
+      Module::Build::Tiny 0.046
     requirements:
       CPAN::Meta 0
       DynaLoader 0
@@ -104,10 +104,10 @@ DISTRIBUTIONS
     requirements:
       Module::Build::Tiny 0.034
       Mojolicious 0
-  Mojo-SMTP-Client-0.19
-    pathname: O/OL/OLEG/Mojo-SMTP-Client-0.19.tar.gz
+  Mojo-SMTP-Client-0.20
+    pathname: O/OL/OLEG/Mojo-SMTP-Client-0.20.tar.gz
     provides:
-      Mojo::SMTP::Client 0.19
+      Mojo::SMTP::Client 0.20
       Mojo::SMTP::Client::Exception undef
       Mojo::SMTP::Client::Exception::Response undef
       Mojo::SMTP::Client::Exception::Stream undef
@@ -117,8 +117,8 @@ DISTRIBUTIONS
       Mojo::IOLoop::Delay 0
       Mojolicious 9
       Test::More 0.88
-  Mojolicious-9.29
-    pathname: S/SR/SRI/Mojolicious-9.29.tar.gz
+  Mojolicious-9.33
+    pathname: S/SR/SRI/Mojolicious-9.33.tar.gz
     provides:
       Mojo undef
       Mojo::Asset undef
@@ -186,7 +186,7 @@ DISTRIBUTIONS
       Mojo::UserAgent::Transactor undef
       Mojo::Util undef
       Mojo::WebSocket undef
-      Mojolicious 9.29
+      Mojolicious 9.33
       Mojolicious::Command undef
       Mojolicious::Command::Author::cpanify undef
       Mojolicious::Command::Author::generate undef
