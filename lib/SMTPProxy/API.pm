@@ -2,13 +2,14 @@ package SMTPProxy::API;
 
 use Mojo::Base -base, -signatures;
 use Mojo::JSON;
-use Mojo::Promise;
 use Mojo::UserAgent;
 use Mojo::Util qw(dumper);
 
 has [qw(log url)];
 
 my $ua = Mojo::UserAgent->new;
+# let's give the API a minute to respond
+$ua->inactivity_timeout(60);
 
 sub check ($self,$log, %args) {
     return $ua->post_p($self->url, json => \%args)->then(sub ($tx) {
