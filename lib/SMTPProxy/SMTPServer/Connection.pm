@@ -459,9 +459,10 @@ sub _processData ($self, $command) {
                                 $self->log->debug('Accepted MAIL command for ' . $self->clientAddress . ' ' . $message);
                                 return;
                             }
-                            return Mojo::Promise->reject("Connection is closed, $self is not a valid object anymore.")
-                        },
-                        sub ($message =  undef) {
+                            $self->log->debug("$self is not a valid object anymore. Close connection");
+                            return Mojo::Promise->reject("Sorry can't accept your mail");
+                        }
+                    )->catch(sub ($message =  undef) {
                             $self->_sendReply(550, $message // '');
                             $self->log->debug('MAIL command rejected for ' . $self->clientAddress  . ' ' . $message);
                             $self->state(WANT_MAIL);
