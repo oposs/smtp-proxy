@@ -1,0 +1,24 @@
+include:
+  - project: 'hin/engineering/templates/gitlab'
+    ref: v1.2.8
+    file: '/security/security.yml'
+  - project: 'hin/engineering/templates/gitlab'
+    ref: v1.2.8
+    file: '/report/sonarqube.yml'
+
+stages:
+  - security
+  - report
+
+secrets-scan:
+  extends: .secrets-scan
+  script:
+    - gitleaks detect --verbose --source .  # Run GitLeaks in verbose mode on cloned repo
+  needs: []
+
+sonarqube-check:
+  extends: .sonarqube-check
+  script:
+    - export VERSION=$(cat VERSION)
+    - sonar-scanner -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600 -Dsonar.projectVersion=$VERSION
+  needs: []
