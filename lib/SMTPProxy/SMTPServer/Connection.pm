@@ -40,24 +40,29 @@ sub new ($class, %args) {
 }
 
 sub _setupClose ($self) {
-    weaken $self;
+    # Capture the id and the log rather than the connection. A stream is torn
+    # down as part of destroying the connection that owns it, and closing a
+    # stream emits 'close', so a handler holding a weak reference to the
+    # connection can be called just as that reference falls away. Nothing here
+    # needs the object itself, and neither the id nor the log refers back to
+    # it, so holding them strongly avoids the question entirely.
+    my $id = $self->id;
+    my $log = $self->log;
+    my $clientAddress = $self->clientAddress;
+
     $self->stream->on('close' => sub ($stream) {
-            Mojo::IOLoop->remove($self->id);
+            Mojo::IOLoop->remove($id);
         }
     );
 
-    $self->stream->on('error' => sub ($stream,$err) {
-            $self->log->error("Error on stream: $err");
-            #$stream->close;
-            #Mojo::IOLoop->remove($self->id);
+    $self->stream->on('error' => sub ($stream, $err) {
+            $log->error("Error on stream for $clientAddress: $err");
         }
     );
 
     $self->stream->on('timeout' => sub ($stream) {
             # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout
-            $self->log->error("Timeout on stream");
-            #$stream->close;
-            #Mojo::IOLoop->remove($self->id);
+            $log->error("Timeout on stream for $clientAddress");
         }
     );
 }
@@ -435,6 +440,10 @@ sub _processData ($self, $command) {
         my $promise = $self->data->($headersPromise, $bodyPromise);
         my $headersDone = 0;
         my $handled = '';
+        # Held strongly: the client may hang up while the relay is still in
+        # flight, and these are then all that is left to report it with.
+        my $log = $self->log;
+        my $clientAddress = $self->clientAddress;
         weaken $self;
         $self->dataEater(sub ($buffer) {
             for my $line (split(/(?<=\n)/, $buffer)) {
@@ -455,18 +464,27 @@ sub _processData ($self, $command) {
                     $self->dataEater(undef);
                     $promise->then(
                         sub ($message = '???') {
-                            if (ref $self) {
-                                $self->_sendReply(250, 'OK: ' . $message);
-                                $self->state(WANT_MAIL);
-                                $self->log->debug('Accepted MAIL command for ' . $self->clientAddress . ' ' . $message);
+                            # Nobody left to reply to; rejecting here would
+                            # only produce an unhandled rejection.
+                            unless (ref $self) {
+                                $log->info("Client $clientAddress left before " .
+                                    "the message could be accepted: $message");
                                 return;
                             }
-                            $self->log->debug("$self is not a valid object anymore. Close connection");
-                            return Mojo::Promise->reject("Sorry can't accept your mail");
+                            $self->_sendReply(250, 'OK: ' . $message);
+                            $self->state(WANT_MAIL);
+                            $log->debug("Accepted DATA for $clientAddress $message");
+                            return;
                         }
-                    )->catch(sub ($message =  undef) {
-                            $self->_sendReply(550, $message // '');
-                            $self->log->debug('MAIL command rejected for ' . $self->clientAddress  . ' ' . $message);
+                    )->catch(sub ($message = undef) {
+                            $message //= '';
+                            unless (ref $self) {
+                                $log->info("Client $clientAddress left before " .
+                                    "the rejection could be sent: $message");
+                                return;
+                            }
+                            $self->_sendReply(550, $message);
+                            $log->debug("DATA rejected for $clientAddress $message");
                             $self->state(WANT_MAIL);
                             return;
                         }
