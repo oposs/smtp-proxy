@@ -1,0 +1,54 @@
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+use lib "$FindBin::Bin/../thirdparty/lib/perl5";
+use strict;
+use warnings;
+use v5.16;
+
+use SMTPProxy::SMTPServer::ReplyFormatter;
+use Test::More;
+
+plan tests => 12;
+
+# The ordinary cases must keep working.
+
+is formatReply(250, 'OK'), "250 OK\r\n", 'Single line reply';
+is formatReply(250, 'greeting', 'STARTTLS', 'DSN'),
+    "250-greeting\r\n250-STARTTLS\r\n250 DSN\r\n", 'Multi line reply';
+
+# Text reaching the formatter comes from the upstream server and from the API,
+# and an SMTP reply line may not contain a bare CR or LF (RFC 5321 4.5.3.1.5).
+# A reply that does is unparseable, and the client hangs until it times out.
+
+my $embeddedLf = formatReply(550, "Requested action not taken: nope\n");
+is $embeddedLf, "550 Requested action not taken: nope\r\n",
+    'Trailing newline in the message does not break the reply';
+unlike substr($embeddedLf, 0, length($embeddedLf) - 2), qr/[\r\n]/,
+    'No stray CR or LF inside the reply line';
+
+my $embeddedCrLf = formatReply(550, "first\r\nsecond");
+is $embeddedCrLf, "550 first second\r\n",
+    'Embedded CRLF is folded into the single reply line';
+
+# An upstream error text is attacker-influenced in the general case, so it must
+# not be able to inject an extra reply line the client would act on.
+my $injection = formatReply(550, "rejected\r\n250 OK, go ahead");
+is $injection, "550 rejected 250 OK, go ahead\r\n",
+    'Cannot inject a forged reply line';
+is scalar(() = $injection =~ /\r\n/g), 1, 'Injection attempt yields one line';
+
+my $cr = formatReply(550, "carriage\rreturn");
+is $cr, "550 carriage return\r\n", 'Bare CR is folded too';
+
+# Same protection on every line of a multiline reply.
+my $multi = formatReply(250, "one\r\ntwo", 'three');
+is $multi, "250-one two\r\n250 three\r\n", 'Continuation lines are sanitised';
+
+# RFC 5321 4.5.3.1.5: 512 octets per reply line including code and CRLF.
+my $long = formatReply(550, 'x' x 1000);
+ok length($long) <= 512, 'Over-long reply line is truncated to 512 octets';
+like $long, qr/^550 x+\.\.\.\r\n$/, 'Truncated reply is still well formed';
+
+# Guard rails that already existed must survive.
+eval { formatReply(9999, 'nope') };
+like $@, qr/Invalid response code/, 'Bad response code still dies';
