@@ -43,7 +43,9 @@ sub parseCommand {
             # SP-28: RFC 5321 section 2.4 says verbs and argument values are
             # not case sensitive, offering '"TO:" or "to:"' as its example, so
             # the keyword is matched without regard to case.
-            if ($arguments =~ /^FROM:\s*<([^>]+)>(?: (.*))?$/i) {
+            # An empty reverse path (MAIL FROM:<>) is the null return path
+            # used by bounces and DSN messages, so it must be accepted.
+            if ($arguments =~ /^FROM:\s*<([^>]*)>(?: (.*))?$/i) {
                 $parsed->{from} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
@@ -82,7 +84,7 @@ sub parseCommand {
                 }
             }
             else {
-                $parsed->{error} = 'invalid MAIL arguments';
+                $parsed->{error} = 'invalid RCPT arguments';
                 $parsed->{suggested_reply} = 501;
             }
         }
@@ -100,12 +102,20 @@ sub parseCommand {
     return ($parsed, $buffer);
 }
 
+# Parses an esmtp-param list (RFC 5321 section 4.1.2). Returns an arrayref of
+# keyword/value pairs, or undef if any parameter is malformed. The value is
+# undef for a bare keyword, which the grammar permits. Returning undef rather
+# than skipping a bad parameter matters: silently dropping one would tell the
+# client we honoured something we discarded.
 sub _parseParameters {
     my @paramStrings = split ' ', shift;
     my @parameters;
     for (@paramStrings) {
-        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([^\x00-\x20=]+))/) {
+        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([^\x00-\x20=]+))?$/) {
             push @parameters, { keyword => $1, value => $2 };
+        }
+        else {
+            return undef;
         }
     }
     return \@parameters;
