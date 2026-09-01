@@ -3,7 +3,7 @@ package SMTPProxy;
 use Mojo::Base -base, -signatures;
 use Mojo::Log;
 use Mojo::Promise;
-use Mojo::SMTP::Client;
+use SMTPProxy::RelayClient;
 use SMTPProxy::SMTPServer;
 use Mojo::Util qw(dumper);
 
@@ -53,10 +53,12 @@ sub setup ($self) {
                 password => $collected{password},
             );
             $collected{from} = $from;
+            $collected{mailParameters} = $parameters // [];
             return Mojo::Promise->resolve('got MAIL');
         });
         $connection->rcpt(sub ($to, $parameters) {
             push @{$collected{to} //= []}, $to;
+            ($collected{rcptParameters} //= {})->{$to} = $parameters // [];
             return Mojo::Promise->resolve('got RCPT');
         });
         $connection->data(sub ($headersPromise, $bodyPromise) {
@@ -142,7 +144,9 @@ sub _callAPI ($self,$log, %collected) {
         password => $collected{password},
         from => $collected{from},
         to => $collected{to},
-        headers => $collected{headers}
+        headers => $collected{headers},
+        mailParameters => $collected{mailParameters},
+        rcptParameters => $collected{rcptParameters}
     );
 }
 
@@ -162,10 +166,11 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
 
     my $formattedHeaders = join '',
         map { $_->{name} . ': ' . $_->{value} . "\r\n" } @headers;
-    my $smtp = Mojo::SMTP::Client->new(
+    my $smtp = SMTPProxy::RelayClient->new(
         address => $self->tohost,
         port => $self->toport,
         autodie => 1,
+        log => $log,
     );
     my $last_ok_message = '';
     $smtp->inactivity_timeout(60); # relax :)
@@ -177,9 +182,16 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
            $first_ok_skip = 1;
         }
     });
+    my $rcptParameters = $mail{rcptParameters} // {};
     $smtp->send(
-        from     => $apiResult->{from} || $mail{from},
-        to       => $mail{to},
+        from     => {
+            address    => $apiResult->{from} || $mail{from},
+            parameters => $mail{mailParameters},
+        },
+        to       => [map { {
+            address    => $_,
+            parameters => $rcptParameters->{$_},
+        } } @{$mail{to}}],
         data     => $formattedHeaders . "\r\n" . $mail{body},
         quit     => 1,
         sub {
@@ -278,7 +290,26 @@ An object having a method `check`, which will be called like this:
         headers => [
             { name => 'To', value => 'foo@bar.com' },
             ...
-        ])
+        ],
+        # ESMTP parameters given on MAIL FROM, in the order received
+        mailParameters => [
+            { keyword => 'RET', value => 'HDRS' },
+            ...
+        ],
+        # ESMTP parameters given on RCPT TO, keyed by recipient
+        rcptParameters => {
+            'x@baz.com' => [
+                { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
+                ...
+            ],
+        })
+
+A parameter given without a value, which RFC 5321 permits, has an undefined
+C<value>. The RFC 3461 delivery status notification parameters (C<RET> and
+C<ENVID> on MAIL, C<NOTIFY> and C<ORCPT> on RCPT) are relayed to the upstream
+server, provided it announces the C<DSN> extension; see
+L<SMTPProxy::RelayClient>. Other parameters are reported to the API but are
+not relayed.
 
 And will return a C<Mojo::Promise> that will resolve to a hashref like either:
 

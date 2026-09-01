@@ -95,8 +95,6 @@ my @rcptCases = (
     },
 );
 
-plan tests => scalar(@cases) + scalar(@rcptCases);
-
 for my $case (@cases) {
     subtest "MAIL $case->{desc}" => sub {
         my ($parsed, $buffer) = parseCommand("MAIL $case->{arguments}\r\nRSET\r\n");
@@ -133,3 +131,65 @@ for my $case (@rcptCases) {
         }
     };
 }
+
+# ---------------------------------------------------------------------------
+# ESMTP parameters, the null return path, and malformed input.
+# ---------------------------------------------------------------------------
+
+sub parse {
+    my ($parsed) = parseCommand(shift() . "\r\n");
+    return $parsed;
+}
+
+# RFC 3461 DSN parameters must survive parsing.
+
+my $rcpt = parse('RCPT TO:<a@b.com> NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;a@b.com');
+is $rcpt->{to}, 'a@b.com', 'RCPT with DSN parameters yields the address';
+is_deeply $rcpt->{parameters}, [
+        { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
+        { keyword => 'ORCPT',  value => 'rfc822;a@b.com'  },
+    ], 'RCPT NOTIFY and ORCPT parsed';
+
+my $mail = parse('MAIL FROM:<a@b.com> RET=HDRS ENVID=QQ314159');
+is $mail->{from}, 'a@b.com', 'MAIL with DSN parameters yields the address';
+is_deeply $mail->{parameters}, [
+        { keyword => 'RET',   value => 'HDRS'     },
+        { keyword => 'ENVID', value => 'QQ314159' },
+    ], 'MAIL RET and ENVID parsed';
+
+# The null return path. DSN messages themselves are sent with MAIL FROM:<>,
+# so a proxy that cannot parse it cannot relay a bounce.
+
+my $nullFrom = parse('MAIL FROM:<>');
+ok !$nullFrom->{error}, 'MAIL FROM:<> is accepted';
+is $nullFrom->{from}, '', 'MAIL FROM:<> yields the empty reverse path';
+is_deeply $nullFrom->{parameters}, [], 'MAIL FROM:<> has no parameters';
+
+my $nullFromParams = parse('MAIL FROM:<> RET=FULL');
+ok !$nullFromParams->{error}, 'MAIL FROM:<> with parameters is accepted';
+is $nullFromParams->{from}, '', 'MAIL FROM:<> with parameters yields empty path';
+is_deeply $nullFromParams->{parameters}, [{ keyword => 'RET', value => 'FULL' }],
+    'MAIL FROM:<> parameters parsed';
+
+# An empty forward path is not legal on RCPT.
+
+my $nullTo = parse('RCPT TO:<>');
+is $nullTo->{error}, 'invalid RCPT arguments', 'RCPT TO:<> is rejected';
+is $nullTo->{suggested_reply}, 501, 'RCPT TO:<> suggests a 501 reply';
+
+# RFC 5321 esmtp-param allows a bare keyword with no value.
+
+my $valueless = parse('RCPT TO:<a@b.com> SMTPUTF8');
+ok !$valueless->{error}, 'valueless parameter is accepted';
+is_deeply $valueless->{parameters}, [{ keyword => 'SMTPUTF8', value => undef }],
+    'valueless parameter is recorded with an undefined value';
+
+# Malformed parameters must be rejected rather than silently dropped, or the
+# client believes the proxy honoured something it discarded.
+
+for my $bad ('NOTIFY=', '=SUCCESS', 'NOTIFY=A=B', '-BAD=1') {
+    my $parsed = parse("RCPT TO:<a\@b.com> $bad");
+    is $parsed->{suggested_reply}, 501, "malformed parameter '$bad' is rejected";
+}
+
+done_testing();

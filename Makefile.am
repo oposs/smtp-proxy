@@ -5,9 +5,10 @@ AUTOMAKE_OPTIONS =  foreign
 SUBDIRS = bin lib thirdparty
 
 PERLTESTS := $(shell find -L t -name "*.t")
+PERLTESTLIBS := $(shell find -L t -name "*.pm")
 PM := $(shell find -L lib -name "*.pm")
 
-EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(SHARE)
+EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(PERLTESTLIBS) $(SHARE)
 
 YEAR := $(shell date +%Y)
 DATE := $(shell date +%Y-%m-%d)

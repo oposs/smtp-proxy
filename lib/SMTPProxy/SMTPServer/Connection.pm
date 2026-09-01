@@ -195,7 +195,8 @@ sub _processInitialEhlo ($self, $command) {
         $self->_sendReply(250,
             $self->service_name . ' offers a warm hug of welcome',
             'STARTTLS',
-            ($self->require_starttls ? () : 'AUTH PLAIN LOGIN'));
+            ($self->require_starttls ? () : 'AUTH PLAIN LOGIN'),
+            'DSN');
         $self->state(WANT_STARTTLS);
     }
     else {
@@ -251,7 +252,8 @@ sub _processTLSEhlo ($self, $command) {
     if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
         $self->_sendReply(250,
             $self->service_name . ' offers another warm hug of welcome',
-            'AUTH PLAIN LOGIN');
+            'AUTH PLAIN LOGIN',
+            'DSN');
         $self->state(WANT_AUTH);
     }
     else {
