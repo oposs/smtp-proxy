@@ -40,7 +40,9 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'MAIL') {
-            if ($arguments =~ /^FROM:\s*<([^>]+)>(?: (.*))?$/) {
+            # SP-28: allow MAIL From: <address> [parameters] (RFC 5321, section 4.1.1.2 requires uppercase "FROM",
+            #        but we will be lenient and allow capitalized "From" as well
+            if ($arguments =~ /^(?:FROM|From):\s*<([^>]+)>(?: (.*))?$/) {
                 $parsed->{from} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
