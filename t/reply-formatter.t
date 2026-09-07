@@ -8,7 +8,7 @@ use v5.16;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 use Test::More;
 
-plan tests => 17;
+plan tests => 19;
 
 # The ordinary cases must keep working.
 
@@ -77,3 +77,14 @@ unlike substr($wide, 0, length($wide) - 2), qr/[^\t\x20-\x7e]/,
 
 my $longWide = formatReply(550, "\x{263a}" x 1000);
 ok length($longWide) <= 512, 'An over-long wide reply is capped in octets';
+
+# Perl's $ matches before a final newline, so the code guard let a trailing one
+# through and emitted the bare LF the whole module exists to prevent. The
+# argument is the one part of a reply that is never sanitised, on the grounds
+# that it was already validated.
+
+eval { formatReply("250\n", 'OK') };
+like $@, qr/Invalid response code/, 'A response code with a newline is rejected';
+
+eval { formatReply(100, 'nope') };
+like $@, qr/Invalid response code/, 'A code outside the 2xx-5xx range is rejected';

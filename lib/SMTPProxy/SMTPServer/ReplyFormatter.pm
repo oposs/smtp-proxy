@@ -12,7 +12,12 @@ use constant MAX_TEXT => MAX_REPLY_LINE - length('250 ') - length("\r\n");
 
 sub formatReply {
     my ($code, @lines) = @_;
-    die "Invalid response code '$code'" unless $code =~ /^\d\d\d$/;
+    # \A and \z rather than ^ and $: Perl's $ matches before a final newline,
+    # so "250\n" passed this guard and put a bare LF in a reply line, which is
+    # the one thing the rest of this module exists to make impossible. The code
+    # is the only part of a reply that is never sanitised, because it is
+    # supposed to have been validated here.
+    die "Invalid response code '$code'" unless $code =~ /\A[2-5]\d\d\z/;
     die "Must have at least one response line" unless @lines;
     my @formatted;
     while (@lines) {
