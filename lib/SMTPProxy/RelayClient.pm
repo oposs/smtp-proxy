@@ -14,6 +14,20 @@ use Scalar::Util qw(weaken);
 # announced DSN in its EHLO response. Other ESMTP parameters are left alone
 # because the proxy does not negotiate them with the upstream.
 
+# This subclass reaches past the documented interface of its superclass: it
+# overrides the private _cmd_from and _cmd_to, calls the private _write_cmd and
+# _read_response, and reads the private {resp_checker} and {expected_code}
+# fields out of the instance hash. None of that appears in the POD, so none of
+# it is promised. The cpanfile therefore pins the version exactly, and the
+# check below turns the half of the drift that is detectable into a failure at
+# load time rather than a failure in a promise callback while relaying a
+# message somebody sent.
+for my $method (qw(_cmd_from _cmd_to _write_cmd _read_response)) {
+    Mojo::SMTP::Client->can($method) or die __PACKAGE__ .
+        " requires the private Mojo::SMTP::Client::$method, which the " .
+        "installed version does not provide\n";
+}
+
 my %MAIL_DSN_KEYWORDS = map { $_ => 1 } qw(RET ENVID);
 my %RCPT_DSN_KEYWORDS = map { $_ => 1 } qw(NOTIFY ORCPT);
 
@@ -150,6 +164,16 @@ the submitting client can be passed on to the upstream server.
 The parameters are only sent to an upstream that announced the C<DSN>
 extension in its EHLO response; otherwise they are dropped and a warning is
 logged.
+
+=head1 CAVEATS
+
+C<Mojo::SMTP::Client> offers no supported way to append ESMTP parameters to a
+MAIL FROM or RCPT TO command, so this subclass overrides its private
+C<_cmd_from> and C<_cmd_to>, calls its private C<_write_cmd> and
+C<_read_response>, and reads its private C<resp_checker> and C<expected_code>
+instance fields. None of these are part of its documented interface. The
+version is pinned exactly in the F<cpanfile> for that reason, and this module
+refuses to load if the private methods it needs have gone away.
 
 =head1 COPYRIGHT
 
