@@ -26,9 +26,19 @@ sub formatReply {
 # A bare CR or LF in it would break the framing of the reply, which leaves the
 # client unable to parse anything and hanging until its own timeout, and would
 # let text from upstream inject a whole forged reply line.
+#
+# CR and LF are only the two that break framing, though. RFC 5321's textstring
+# is a tab plus printable ASCII and nothing else, and the rest of what can
+# arrive here is worth excluding on its own account: the same text is written
+# to the smtplog, so an ESC in an upstream reply is a terminal escape sequence
+# executed in the shell of whoever tails that file. Anything above U+00FF is
+# excluded too, because Mojo::IOLoop::Stream::write calls utf8::downgrade and
+# dies inside the reactor on a wide character -- and once the text is ASCII the
+# 512 limit below is counted in the octets RFC 5321 4.5.3.1.5 actually means,
+# rather than in characters, and truncation cannot sever one.
 sub _sanitize {
     my $text = shift // '';
-    $text =~ s/[\r\n]+/ /g;
+    $text =~ s/[^\t\x20-\x7e]+/ /g;
     $text =~ s/\s+$//;
     if (length($text) > MAX_TEXT) {
         $text = substr($text, 0, MAX_TEXT - 3) . '...';

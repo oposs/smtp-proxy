@@ -8,7 +8,7 @@ use v5.16;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 use Test::More;
 
-plan tests => 12;
+plan tests => 17;
 
 # The ordinary cases must keep working.
 
@@ -52,3 +52,28 @@ like $long, qr/^550 x+\.\.\.\r\n$/, 'Truncated reply is still well formed';
 # Guard rails that already existed must survive.
 eval { formatReply(9999, 'nope') };
 like $@, qr/Invalid response code/, 'Bad response code still dies';
+
+# CR and LF are not the only bytes that must not reach the wire. The same text
+# is written to the smtplog, which an operator reads with tail, so an ESC from
+# an upstream reply is a terminal escape sequence executed in their shell. RFC
+# 5321's textstring is tab plus printable ASCII and nothing else.
+
+my $controls = formatReply(550, "esc\x1b[31mred\x00nul\x07bell");
+unlike substr($controls, 0, length($controls) - 2), qr/[^\t\x20-\x7e]/,
+    'Every control character is folded out of the reply text';
+is $controls, "550 esc [31mred nul bell\r\n",
+    'Folding a control leaves the surrounding text intact';
+
+# Mojo::IOLoop::Stream::write calls utf8::downgrade, which dies inside the
+# reactor on any code point above U+00FF -- and upstream error text is exactly
+# where one arrives. The 512 limit is octets, not characters, for the same
+# reason.
+
+my $wide = formatReply(550, "caf\x{e9} \x{263a} smile");
+ok !utf8::is_utf8($wide) || utf8::downgrade(my $copy = $wide, 1),
+    'A reply with wide input can still be written as bytes';
+unlike substr($wide, 0, length($wide) - 2), qr/[^\t\x20-\x7e]/,
+    'Wide characters do not survive into the reply';
+
+my $longWide = formatReply(550, "\x{263a}" x 1000);
+ok length($longWide) <= 512, 'An over-long wide reply is capped in octets';
