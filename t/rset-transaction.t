@@ -21,7 +21,7 @@ use Test::More;
 # resets the transaction, not the session: the client authenticated once and is
 # not asked to do so again, so the credentials it gave must survive.
 
-plan tests => 6;
+plan tests => 11;
 
 my $TEST_HOST = '127.0.0.1';
 my $UPSTREAM_PORT = Mojo::IOLoop::Server->generate_port;
@@ -63,7 +63,18 @@ $client->connect_p
         $client->writeOnly("Subject: after reset\r\nFrom: a\@b.com\r\n\r\nbody\r\n.\r\n");
         return $client->expectReply_p;
     })
-    ->then(sub ($r) { $reply{accepted} = $r; $client->command_p('QUIT') })
+    # RFC 5321 4.1.4: a mid-session EHLO resets the transaction exactly as RSET
+    # does, and is a normal way for a client to start over. It must not cost
+    # the session its authentication either.
+    ->then(sub ($r) { $reply{accepted} = $r; $client->command_p('EHLO test.client') })
+    ->then(sub ($r) { $reply{midEhlo} = $r; $client->command_p('MAIL FROM:<sender@foobar.com>') })
+    ->then(sub ($r) { $reply{mail2} = $r; $client->command_p('RCPT TO:<third@foobaz.com>') })
+    ->then(sub { $client->command_p('DATA') })
+    ->then(sub {
+        $client->writeOnly("Subject: after ehlo\r\nFrom: a\@b.com\r\n\r\nbody\r\n.\r\n");
+        return $client->expectReply_p;
+    })
+    ->then(sub ($r) { $reply{accepted2} = $r; $client->command_p('QUIT') })
     ->then(sub { $client->close; return })
     ->catch(sub ($err) { fail "Session failed: $err" })
     ->finally(sub { Mojo::IOLoop->stop });
@@ -73,9 +84,18 @@ like $reply{rset}, qr/^250 /, 'RSET is accepted';
 like $reply{mail}, qr/^250 /, 'A new MAIL is accepted after RSET';
 like $reply{accepted}, qr/^250 /, 'The message after the RSET is accepted';
 
+like $reply{midEhlo}, qr/^250[- ]/, 'A mid-session EHLO is accepted';
+like $reply{midEhlo}, qr/^250[- ]DSN\r?$/m,
+    'The mid-session EHLO answers with the extension list';
+like $reply{mail2}, qr/^250 /, 'A new MAIL is accepted after the EHLO';
+like $reply{accepted2}, qr/^250 /, 'The message after the EHLO is accepted';
+
 my @calls = @{$api->calledWith};
-is scalar(@calls), 1, 'The API was called once, for the message that was sent';
-is $calls[0]->{username}, 'fooser',
-    'The username survives the RSET';
-is $calls[0]->{password}, 's3cr3t',
-    'The password survives the RSET';
+is scalar(@calls), 2, 'The API was called once per message actually sent';
+is_deeply [map { $_->{username} } @calls], ['fooser', 'fooser'],
+    'The username survives both the RSET and the EHLO';
+is_deeply [map { $_->{password} } @calls], ['s3cr3t', 's3cr3t'],
+    'The password survives both the RSET and the EHLO';
+is_deeply [map { $_->{to} } @calls],
+    [['wanted@foobaz.com'], ['third@foobaz.com']],
+    'Each message carries only its own recipients';

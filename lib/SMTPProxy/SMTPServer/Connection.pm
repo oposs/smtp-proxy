@@ -12,7 +12,7 @@ use Scalar::Util qw(weaken);
 
 has [qw(service_name require_starttls tls_cert tls_key require_auth
      id log credentials clientAddress auth mail rcpt data vrfy rset quit
-    smtplogHandle stream dataEater setupCallback state)];
+    smtplogHandle stream dataEater setupCallback state tlsActive)];
 
 
 # States we may be in.
@@ -154,7 +154,7 @@ my @STATE_METHODS = (
 sub _processCommand ($self, $command) {
     my $commandName = $command->{command};
 
-    # QUIT, NOOP, and VRFY are valid in any state.
+    # QUIT, NOOP, VRFY, EHLO and HELO are valid in any state.
     if ($commandName eq 'QUIT') {
         my $callback = $self->quit;
         $self->log->debug("Processing QUIT for " . $self->clientAddress);
@@ -184,6 +184,10 @@ sub _processCommand ($self, $command) {
             $self->_sendReply(553, 'User ambiguous');
         }
     }
+    elsif ($commandName eq 'EHLO' || $commandName eq 'HELO') {
+        $self->log->debug("Processing $commandName for " . $self->clientAddress);
+        $self->_processGreeting($command);
+    }
     elsif ($commandName eq 'RSET') {
         my $callback = $self->rset;
         $self->log->debug("Processing RSET for " . $self->clientAddress);
@@ -200,26 +204,55 @@ sub _processCommand ($self, $command) {
     }
 }
 
+# RFC 5321 4.1.4: a client may issue EHLO or HELO at any point in a session,
+# and an acceptable one clears all buffers and resets the state exactly as if
+# RSET had been issued. Greetings used to be dispatched by state like every
+# other command, so they were only accepted in the two states that expected
+# one; a second EHLO drew 530 in WANT_AUTH and 503 in the mail states. Sending
+# one to start over after a rejected transaction is a normal client idiom.
+#
+# What it resets is the transaction, not the session. RFC 4954 section 4 ties
+# authentication to the session, and there is no way for the client to
+# authenticate a second time in any case, so a client that has logged in comes
+# back to WANT_MAIL rather than to WANT_AUTH.
+sub _processGreeting ($self, $command) {
+    my $tlsEstablished = $self->tlsActive;
+    my @extensions;
+    if ($command->{command} eq 'EHLO') {
+        push @extensions, 'STARTTLS' unless $tlsEstablished;
+        push @extensions, 'AUTH PLAIN LOGIN'
+            if $tlsEstablished || !$self->require_starttls;
+        push @extensions, 'DSN';
+    }
+    # HELO is basic SMTP: a single line, and no extension keywords, since the
+    # client has not asked whether we speak any (RFC 5321 4.1.1.1).
+    $self->_sendReply(250,
+        $self->service_name . ($tlsEstablished
+            ? ' offers another warm hug of welcome'
+            : ' offers a warm hug of welcome'),
+        @extensions);
+
+    # Reset the transaction the way RSET does -- but only when there is one to
+    # reset. A greeting is also how a session opens and how it resumes after
+    # STARTTLS, and reporting a transaction boundary to the application for
+    # those would be inventing an event that did not happen.
+    my $state = $self->state;
+    if ($state >= WANT_MAIL) {
+        my $callback = $self->rset;
+        $callback->() if $callback;
+    }
+
+    $self->state(
+        $state >= WANT_MAIL ? WANT_MAIL       :
+        $state >= WANT_AUTH ? WANT_AUTH       :
+        $tlsEstablished     ? WANT_AUTH       :
+                              WANT_STARTTLS);
+}
+
+# Greetings are handled above, before the dispatch by state, so anything
+# arriving in this state is genuinely out of sequence.
 sub _processInitialEhlo ($self, $command) {
-    my $commandName = $command->{command};
-    if ($commandName eq 'EHLO') {
-        $self->_sendReply(250,
-            $self->service_name . ' offers a warm hug of welcome',
-            'STARTTLS',
-            ($self->require_starttls ? () : 'AUTH PLAIN LOGIN'),
-            'DSN');
-        $self->state(WANT_STARTTLS);
-    }
-    elsif ($commandName eq 'HELO') {
-        # HELO is basic SMTP: a single line, and no extension keywords, since
-        # the client has not asked whether we speak any (RFC 5321 4.1.1.1).
-        $self->_sendReply(250,
-            $self->service_name . ' offers a warm hug of welcome');
-        $self->state(WANT_STARTTLS);
-    }
-    else {
-        $self->_sendReply(503, 'Bad sequence of commands');
-    }
+    $self->_sendReply(503, 'Bad sequence of commands');
 }
 
 sub _processStartTLS ($self, $command) {
@@ -245,6 +278,7 @@ sub _processStartTLS ($self, $command) {
                 # timeout a stream after 10 minutes not after 15 seconds
                 # https://docs.mojolicious.org/Mojo/IOLoop/Stream#timeout
                 $self->stream->timeout(600);
+                $self->tlsActive(1);
                 $self->state(WANT_TLS_EHLO);
                 $self->_setupReader;
                 $self->stream->start;
@@ -278,27 +312,13 @@ sub _processStartTLS ($self, $command) {
 }
 
 sub _processTLSEhlo ($self, $command) {
-    my $commandName = $command->{command};
-    if ($commandName eq 'EHLO') {
-        $self->_sendReply(250,
-            $self->service_name . ' offers another warm hug of welcome',
-            'AUTH PLAIN LOGIN',
-            'DSN');
-        $self->state(WANT_AUTH);
-    }
-    elsif ($commandName eq 'HELO') {
-        $self->_sendReply(250,
-            $self->service_name . ' offers another warm hug of welcome');
-        $self->state(WANT_AUTH);
-    }
-    else {
-        # RFC 3207 says that the client SHOULD sent an EHLO after STARTTLS
-        # has done the TLS handshake. Alas, some clients do not do this,
-        # and proceed directly to sending an AUTH command or something else.
-        # If that happens, set state to WANT_AUTH and delegate.
-        $self->state(WANT_AUTH);
-        $self->_processAuth($command);
-    }
+    # RFC 3207 says that the client SHOULD send an EHLO after STARTTLS has done
+    # the TLS handshake. Alas, some clients do not do this, and proceed
+    # directly to sending an AUTH command or something else. A greeting is
+    # handled before the dispatch by state, so whatever arrives here is one of
+    # those and belongs to the next state.
+    $self->state(WANT_AUTH);
+    $self->_processAuth($command);
 }
 
 sub _processAuth ($self, $command) {
