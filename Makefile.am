@@ -7,8 +7,11 @@ SUBDIRS = bin lib thirdparty
 PERLTESTS := $(shell find -L t -name "*.t")
 PERLTESTLIBS := $(shell find -L t -name "*.pm")
 PM := $(shell find -L lib -name "*.pm")
+# The certificates four of the tests need in order to do STARTTLS. Without
+# them a dist tarball ships tests that cannot run.
+PERLTESTDATA := $(shell find -L t/certs-and-keys -type f)
 
-EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(PERLTESTLIBS) $(SHARE)
+EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(PERLTESTLIBS) $(PERLTESTDATA) $(SHARE)
 
 YEAR := $(shell date +%Y)
 DATE := $(shell date +%Y-%m-%d)
