@@ -225,8 +225,19 @@ sub _processInitialEhlo ($self, $command) {
 sub _processStartTLS ($self, $command) {
     my $commandName = $command->{command};
     if ($commandName eq 'STARTTLS') {
+        # Held strongly, and read from in the failure paths instead of $self,
+        # for the same reason _setupClose does it: closing the stream is what
+        # destroys the connection that owns it, and $self is weakened by the
+        # time these run, so anything read from it after the close runs on
+        # undef and takes the reactor's I/O watcher down with it. The stream is
+        # captured here rather than fetched later because the successful path
+        # replaces it with the upgraded one.
+        my $id = $self->id;
+        my $log = $self->log;
+        my $clientAddress = $self->clientAddress;
+        my $stream = $self->stream;
         $self->_sendReply(220, 'Go ahead')->then(sub {
-            my $tls = Mojo::IOLoop::TLS->new($self->stream->handle);
+            my $tls = Mojo::IOLoop::TLS->new($stream->handle);
             weaken $self;
             $tls->on(upgrade => sub ($tls, $new_handle) {
                 $self->log->debug("Successful TLS upgrade for " . $self->clientAddress);
@@ -240,9 +251,10 @@ sub _processStartTLS ($self, $command) {
                 $self->_setupClose;
             });
             $tls->on(error => sub ($tls, $err) {
-                $self->log->info("Failed TLS upgrade for " . $self->clientAddress . ": $err");
-                $self->stream->emit('error', $err)->close;
-                Mojo::IOLoop->remove($self->id);
+                $log->info("Failed TLS upgrade for $clientAddress: $err");
+                # Nothing of $self may be read after this line.
+                $stream->emit('error', $err)->close;
+                Mojo::IOLoop->remove($id);
             });
             $tls->negotiate(
                 server => 1,
@@ -251,9 +263,9 @@ sub _processStartTLS ($self, $command) {
             );
             $self->log->debug("Starting TLS upgrade for " . $self->clientAddress);
         })->catch(sub ($err) {
-            $self->log->info("Failed to TLS for " . $self->clientAddress . ": $err");
-            $self->stream->emit('error', $_[0])->close;
-            Mojo::IOLoop->remove($self->id);
+            $log->info("Failed to TLS for $clientAddress: $err");
+            $stream->emit('error', $err)->close;
+            Mojo::IOLoop->remove($id);
         });
     }
     elsif ($self->require_starttls) {
