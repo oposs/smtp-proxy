@@ -249,4 +249,13 @@ my $bareAuth = do {
 is $bareAuth->{suggested_reply}, 501, 'Bare AUTH is rejected';
 is_deeply \@warnings, [], 'Bare AUTH does not warn about undefined values';
 
+# PING is not an SMTP command and nothing ever handled it: the parser accepted
+# it and the connection then answered 503 from whichever state it was in. It is
+# treated like any other command we do not implement.
+
+my $ping = parse('PING');
+is $ping->{suggested_reply}, 502, 'PING is not implemented';
+is $ping->{error}, 'unknown command', 'PING reported as an unknown command';
+is parse('PING hello')->{suggested_reply}, 502, 'PING with an argument likewise';
+
 done_testing();
