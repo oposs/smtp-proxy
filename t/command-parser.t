@@ -351,4 +351,24 @@ is $underscore->{mechanism}, 'X_MECH', 'An underscore is a legal mech-char too';
 my $tooLong = parse('AUTH ' . ('A' x 21));
 is $tooLong->{suggested_reply}, 501, 'An over-long mechanism name is rejected';
 
+# RFC 5321 4.1.1.1 and 4.1.1.6 make the argument mandatory: an EHLO or HELO
+# carries a domain, a VRFY carries a string. The commands that take no argument
+# already validate that none was given, so accepting these with 250 and an
+# undefined domain was an asymmetry with nothing behind it -- and the domain
+# goes on to be the identity the session is logged under.
+
+for my $bare ('EHLO', 'HELO', 'VRFY') {
+    my $parsed = parse($bare);
+    is $parsed->{suggested_reply}, 501, "Bare $bare is rejected";
+    like $parsed->{error}, qr/required/, "Bare $bare says what is missing";
+}
+
+my $ehloStillWorks = parse('EHLO client.example.com');
+ok !$ehloStillWorks->{error}, 'EHLO with a domain is still accepted';
+is $ehloStillWorks->{domain}, 'client.example.com', 'and still carries it';
+
+my $vrfyStillWorks = parse('VRFY someone@example.com');
+ok !$vrfyStillWorks->{error}, 'VRFY with a string is still accepted';
+is $vrfyStillWorks->{string}, 'someone@example.com', 'and still carries it';
+
 done_testing();

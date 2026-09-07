@@ -18,8 +18,19 @@ sub parseCommand {
         $parsed = { command => $command };
 
         # Now parse by command.
+        # RFC 5321 4.1.1.1: the domain is part of the command, not an option.
+        # The commands below that take no argument already check that none was
+        # given, so accepting these without one was an asymmetry with nothing
+        # behind it -- and the domain is the identity the session goes on to be
+        # logged and greeted under.
         if ($command eq 'EHLO' || $command eq 'HELO') {
-            $parsed->{domain} = $arguments;
+            if (defined $arguments && length $arguments) {
+                $parsed->{domain} = $arguments;
+            }
+            else {
+                $parsed->{error} = 'domain required';
+                $parsed->{suggested_reply} = 501;
+            }
         }
         elsif ($command eq 'NOOP') {
             # RFC 5321 4.1.1.9 allows an argument, which is ignored.
@@ -102,7 +113,14 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'VRFY') {
-            $parsed->{string} = $arguments;
+            # RFC 5321 4.1.1.6 likewise: VRFY takes a string.
+            if (defined $arguments && length $arguments) {
+                $parsed->{string} = $arguments;
+            }
+            else {
+                $parsed->{error} = 'string required';
+                $parsed->{suggested_reply} = 501;
+            }
         }
         else {
             $parsed->{error} = 'unknown command';
