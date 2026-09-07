@@ -21,5 +21,9 @@ README.md COPYRIGHT: VERSION
 
 
 
+# The recipe below is indented with a tab. It was three spaces, which made
+# automake read it as a variable assignment rather than a recipe, so the
+# target had an empty body and `make test` reported "Nothing to be done"
+# and succeeded without running anything.
 test:
-   MOJO_REACTOR=Mojo::Reactor::EV LIBEV_FLAGS=4 prove -w
+	MOJO_REACTOR=Mojo::Reactor::EV LIBEV_FLAGS=4 prove -w -Ilib -Ithirdparty/lib/perl5 -It t/
