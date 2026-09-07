@@ -258,4 +258,43 @@ is $ping->{suggested_reply}, 502, 'PING is not implemented';
 is $ping->{error}, 'unknown command', 'PING reported as an unknown command';
 is parse('PING hello')->{suggested_reply}, 502, 'PING with an argument likewise';
 
+# ---------------------------------------------------------------------------
+# A line we reject must still be consumed. Returning it unchanged left the
+# caller holding a buffer whose head could never parse: the client drew a 500
+# for that line and another for every packet it sent afterwards, the buffer
+# grew without bound, and no later command was ever reached.
+# ---------------------------------------------------------------------------
+
+for my $case (
+    ['a line with an embedded CR', "MAIL FROM:<a\rb>\r\n"],
+    ['a bare empty line',          "\r\n"],
+    ['a bare LF terminator',       "NOOP\n"],
+    ['a line not starting a verb', " NOOP\r\n"],
+) {
+    my ($desc, $bad) = @$case;
+    my ($rejected, $remainder) = parseCommand($bad . "RSET\r\n");
+    is $rejected->{suggested_reply}, 500, "500 for $desc";
+    is $remainder, "RSET\r\n", "$desc is consumed, not left to re-parse";
+}
+
+# The whole buffer drains: the rejection costs one 500, not one per read.
+my $wedge = "MAIL FROM:<a\rb>\r\nNOOP\r\nRSET\r\n";
+my @drained;
+while (1) {
+    my ($command, $rest) = parseCommand($wedge);
+    last unless $command;
+    push @drained, $command->{error} // $command->{command};
+    $wedge = $rest;
+    last if @drained > 4;
+}
+is_deeply \@drained, ['malformed command', 'NOOP', 'RSET'],
+    'Commands after a rejected line are still reached';
+is $wedge, '', 'Buffer fully drained';
+
+# An incomplete line has no terminator to consume, so it must be held intact
+# until the rest of it arrives.
+my ($partial, $held) = parseCommand('MAIL FRO');
+is $partial, undef, 'An incomplete line is not a command';
+is $held, 'MAIL FRO', 'An incomplete line is held, not discarded';
+
 done_testing();

@@ -14,7 +14,7 @@ use RawSMTPClient;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 10;
+plan tests => 12;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = Mojo::IOLoop::Server->generate_port;
@@ -53,7 +53,25 @@ Mojo::IOLoop->next_tick(sub {
                 ->then(sub { $helo->command_p('HELO client.example.com') })
                 ->then(sub ($r) { $reply{helo} = $r; $helo->close; return })
                 ->catch(sub ($err) { fail "HELO session failed: $err" })
-                ->finally(sub { Mojo::IOLoop->stop });
+                ->finally(sub {
+                    # Third connection: a line we reject must cost one 500 and
+                    # leave the session usable, not wedge it for good.
+                    my $bad = RawSMTPClient->new(
+                        address => $TEST_HOST, port => $TEST_PORT);
+                    $bad->connect_p
+                        ->then(sub { $bad->command_p('EHLO client.example.com') })
+                        ->then(sub {
+                            $bad->writeOnly("MAIL FROM:<a\rb>\r\n");
+                            $bad->expectReply_p;
+                        })
+                        ->then(sub ($r) {
+                            $reply{malformed} = $r;
+                            $bad->command_p('RSET');
+                        })
+                        ->then(sub ($r) { $reply{recovered} = $r; $bad->close; return })
+                        ->catch(sub ($err) { fail "Recovery session failed: $err" })
+                        ->finally(sub { Mojo::IOLoop->stop });
+                });
         });
 });
 Mojo::IOLoop->start;
@@ -75,3 +93,10 @@ unlike $reply{helo}, qr/STARTTLS|DSN|AUTH/, 'HELO reply announces no extensions'
 like $reply{noop}, qr/^250 /, 'NOOP accepted';
 like $reply{noopArg}, qr/^250 /, 'NOOP with an argument accepted';
 like $reply{rset}, qr/^250 /, 'RSET accepted';
+
+# A rejected line is answered once, and the connection carries on. Before the
+# parser consumed what it rejected, the offending bytes stayed at the head of
+# the read buffer: this RSET drew a third 500 rather than a 250, and every
+# packet the client sent afterwards did the same.
+like $reply{malformed}, qr/^500 /, 'A malformed line is rejected';
+like $reply{recovered}, qr/^250 /, 'The next command is still answered';

@@ -98,7 +98,12 @@ sub parseCommand {
             $parsed->{suggested_reply} = 502;
         }
     }
-    elsif ($buffer =~ /\n/) {
+    elsif ($buffer =~ s/^[^\n]*\n//) {
+        # Consume the line being rejected. Leaving it in place would hand the
+        # caller a buffer whose head can never parse: it would draw a 500 for
+        # that line, and another for every packet the client sent afterwards,
+        # while the buffer grew without bound and no later command was ever
+        # reached.
         $parsed = { error => 'malformed command', suggested_reply => 500 };
     }
     return ($parsed, $buffer);
