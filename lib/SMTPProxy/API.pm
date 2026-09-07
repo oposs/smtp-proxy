@@ -19,7 +19,12 @@ sub check ($self,$log, %args) {
             return $tx->result->json;
         }
         $log->debug("Validation Failed");
-        $log->debug("req: ".$_) for split /\n/, dumper(\%args);
+        # %args carries the SMTP password the client just authenticated with.
+        # This dump goes to the ordinary log, not the --credentials gated
+        # smtplog, so it must be redacted the same way the call sites in
+        # SMTPProxy do it before they dump the very same data.
+        $log->debug("req: ".$_) for split /\n/,
+            dumper({%args, exists $args{password} ? (password => '*******') : ()});
         $log->debug("res: ".$_) for split /\n/, dumper($tx->result->json);
         return Mojo::Promise->reject($tx->result->message);
     });
