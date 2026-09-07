@@ -130,7 +130,7 @@ Mojo::IOLoop->next_tick(sub {
         return sendWithDsn_p($PLAIN_PROXY_PORT);
     })->then(sub ($reply) {
 
-        # RFC 3461 section 6.1: a relay whose next hop cannot do DSN must not
+        # RFC 3461 section 5.2.2: a relay whose next hop cannot do DSN must not
         # pass the parameters on. Dropping them is strictly worse than issuing
         # our own DSN, but it must not cost us the delivery.
         like $reply->{rcpt}, qr/^250 /,

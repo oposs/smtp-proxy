@@ -116,10 +116,11 @@ sub _dsnSuffix ($self, $parameters, $allowed) {
     my @wanted = grep { $allowed->{uc $_->{keyword}} } @{$parameters // []};
     return '' unless @wanted;
 
-    # RFC 3461 section 6.1 would have a relay issue the notification itself
-    # when the next hop cannot. We cannot generate DSNs, so the parameters are
-    # dropped rather than risking the delivery on an upstream that would
-    # reject them.
+    # RFC 3461 section 5.2.2 is the one that governs this: a relay whose next
+    # hop does not support DSN is required to issue the notification itself.
+    # (Section 6.1 governs the envelope of a DSN message, which is a different
+    # thing entirely.) We cannot generate DSNs, so the parameters are dropped
+    # rather than risking the delivery on an upstream that would reject them.
     unless ($self->upstreamSupportsDsn) {
         $self->log->warn('Upstream does not announce DSN; dropping ' .
             join(', ', map { uc $_->{keyword} } @wanted)) if $self->log;
