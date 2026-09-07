@@ -44,14 +44,20 @@ sub setup ($self) {
             $collected{password} = $password;
             return Mojo::Promise->resolve;
         });
-        $connection->mail(sub ($from, $parameters) {
-
-            # reset the collected data except for authentication.
-            # note, it is possible to send multiple mails per connction!
+        # A transaction begins at MAIL and is abandoned by RSET, and neither
+        # of those ends the session: it is possible to send several mails on
+        # one connection, and RFC 4954 ties authentication to the session
+        # rather than to the transaction, so the client is not asked to log in
+        # again and the credentials it gave once have to outlive both.
+        my $startTransaction = sub {
             %collected = (
                 username => $collected{username},
                 password => $collected{password},
             );
+            return;
+        };
+        $connection->mail(sub ($from, $parameters) {
+            $startTransaction->();
             $collected{from} = $from;
             $collected{mailParameters} = $parameters // [];
             return Mojo::Promise->resolve('got MAIL');
@@ -122,7 +128,7 @@ sub setup ($self) {
             return Mojo::Promise->reject('Unimplemented');
         });
         $connection->rset(sub {
-            %collected = ();
+            $startTransaction->();
         });
     });
     $self->_dropPrivs if $self->user;
