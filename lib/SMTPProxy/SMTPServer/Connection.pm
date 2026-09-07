@@ -31,6 +31,20 @@ has state => sub ($self) {
     return WANT_INITIAL_EHLO;
 };
 
+# Counts transactions on this connection. A relay can take until its inactivity
+# timeout to settle, and RSET, EHLO and a fresh MAIL are all legal while it is
+# still in flight, so by the time it comes back the transaction it belonged to
+# may be over and another one running. Asking whether the connection is still
+# alive does not distinguish those; asking whether it is still the same
+# transaction does.
+sub _startTransaction ($self) {
+    return $self->{transaction} = ($self->{transaction} // 0) + 1;
+}
+
+sub _inTransaction ($self, $epoch) {
+    return ($self->{transaction} // 0) == $epoch;
+}
+
 sub new ($class, %args) {
     my $self = $class->SUPER::new(%args);
     $self->_sendReply(220, $self->service_name . ' SMTP service ready');
@@ -272,6 +286,7 @@ sub _processCommand ($self, $command) {
         my $callback = $self->rset;
         $self->log->debug("Processing RSET for " . $self->clientAddress);
         $callback->() if $callback;
+        $self->_startTransaction;
         if ($self->state > WANT_MAIL) {
             $self->state(WANT_MAIL);
         }
@@ -320,6 +335,7 @@ sub _processGreeting ($self, $command) {
     if ($state >= WANT_MAIL) {
         my $callback = $self->rset;
         $callback->() if $callback;
+        $self->_startTransaction;
     }
 
     $self->state(
@@ -539,6 +555,7 @@ sub _processMail ($self, $command) {
         if (my $rejected = $self->_rejectBadDsnParameters($command, 'MAIL')) {
             return $rejected;
         }
+        $self->_startTransaction;
         my $promise = $self->mail->($command->{from}, $command->{parameters});
         return $promise->then(
             sub {
@@ -614,6 +631,11 @@ sub _processData ($self, $command) {
                         $bodyPromise->resolve($handled);
                     }
                     $self->dataEater(undef);
+                    # Stamped here, while the transaction that owns this
+                    # message is still the live one. Both arms below run after
+                    # the relay settles, which may be minutes later and one or
+                    # more transactions on.
+                    my $epoch = $self->{transaction} // 0;
                     $self->{commandCompletion} = $promise->then(
                         sub ($message = '???') {
                             # Nobody left to reply to; rejecting here would
@@ -621,6 +643,16 @@ sub _processData ($self, $command) {
                             unless (ref $self) {
                                 $log->info("Client $clientAddress left before " .
                                     "the message could be accepted: $message");
+                                return;
+                            }
+                            # Nobody who asked: replying now would put a reply
+                            # on the wire with no command outstanding, which
+                            # offsets every later reply on this connection, and
+                            # the state write would wind the live transaction
+                            # backwards.
+                            unless ($self->_inTransaction($epoch)) {
+                                $log->info("Message for $clientAddress was " .
+                                    "accepted after its transaction ended: $message");
                                 return;
                             }
                             $self->_sendReply(250, 'OK: ' . $message);
@@ -633,6 +665,11 @@ sub _processData ($self, $command) {
                             unless (ref $self) {
                                 $log->info("Client $clientAddress left before " .
                                     "the rejection could be sent: $message");
+                                return;
+                            }
+                            unless ($self->_inTransaction($epoch)) {
+                                $log->info("Message for $clientAddress was " .
+                                    "rejected after its transaction ended: $message");
                                 return;
                             }
                             $self->_sendReply(550, $message);
