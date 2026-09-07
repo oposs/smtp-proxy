@@ -24,9 +24,6 @@ sub parseCommand {
         elsif ($command eq 'NOOP') {
             # RFC 5321 4.1.1.9 allows an argument, which is ignored.
         }
-        elsif ($command eq 'PING') {
-            $parsed->{text} = $arguments;
-        }
         elsif ($command eq 'QUIT' || $command eq 'STARTTLS' || $command eq 'DATA' ||
                $command eq 'RSET') {
             if ($arguments) {
