@@ -11,16 +11,21 @@ use Mojo::IOLoop;
 
 has extensions => sub { ['DSN'] };
 has lines => sub { [] };
+has commandLines => sub { [] };
 has 'port';
 
 sub clear ($self) {
     @{$self->lines} = ();
+    @{$self->commandLines} = ();
     return;
 }
 
-# The command lines received, minus the DATA payload.
+# The command lines received, minus the DATA payload. Recorded as they arrive,
+# using the in-data flag the reader already keeps, rather than filtered
+# afterwards: a payload line is not distinguishable from a command line by
+# looking at it, which is the whole reason SMTP has a terminator.
 sub commands ($self) {
-    return [grep { !/^\./ } @{$self->lines}];
+    return [@{$self->commandLines}];
 }
 
 sub commandsMatching ($self, $re) {
@@ -39,6 +44,7 @@ sub start ($self) {
                 my $line = $1;
                 $line =~ s/\r$//;
                 push @{$self->lines}, $line;
+                push @{$self->commandLines}, $line unless $inData;
                 if ($inData) {
                     next unless $line eq '.';
                     $inData = 0;
