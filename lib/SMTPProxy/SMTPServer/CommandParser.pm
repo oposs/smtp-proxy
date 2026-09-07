@@ -40,9 +40,10 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'MAIL') {
-            # SP-28: allow MAIL From: <address> [parameters] (RFC 5321, section 4.1.1.2 requires uppercase "FROM",
-            #        but we will be lenient and allow capitalized "From" as well
-            if ($arguments =~ /^(?:FROM|From):\s*<([^>]+)>(?: (.*))?$/) {
+            # SP-28: RFC 5321 section 2.4 says verbs and argument values are
+            # not case sensitive, offering '"TO:" or "to:"' as its example, so
+            # the keyword is matched without regard to case.
+            if ($arguments =~ /^FROM:\s*<([^>]+)>(?: (.*))?$/i) {
                 $parsed->{from} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
@@ -64,7 +65,7 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'RCPT') {
-            if ($arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/) {
+            if ($arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/i) {
                 $parsed->{to} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
