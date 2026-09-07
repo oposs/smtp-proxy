@@ -20,7 +20,12 @@ sub connect_p ($self) {
     $self->{client} = $client;
     $client->on(connect => sub ($client, $handle) {
         $self->_setStream(Mojo::IOLoop::Stream->new($handle));
-        $self->expectReply_p->then(sub { $promise->resolve(@_) });
+        # Both outcomes have to be forwarded. Passing only the resolve
+        # handler swallowed a rejected greeting and left the caller waiting.
+        $self->expectReply_p->then(
+            sub { $promise->resolve(@_) },
+            sub { $promise->reject(@_) },
+        );
     });
     $client->on(error => sub ($client, $err) { $promise->reject($err) });
     $client->connect(address => $self->address, port => $self->port);
@@ -73,7 +78,18 @@ sub _setStream ($self, $stream) {
         $self->_tryComplete;
     });
     $stream->on(error => sub ($stream, $err) {
-        (delete $self->{pending})->reject($err) if $self->{pending};
+        $self->_abandon("stream error: $err");
+    });
+    # Mojo::IOLoop::Stream does not emit 'error' for either of these: an
+    # inactivity timeout emits 'timeout' and then closes, and an EOF only
+    # closes. Settling from 'error' alone left a pending reply unsettled for
+    # good, so a server that stopped answering hung the test run instead of
+    # failing it.
+    $stream->on(timeout => sub ($stream) {
+        $self->_abandon('timed out waiting for a reply');
+    });
+    $stream->on(close => sub ($stream) {
+        $self->_abandon('connection closed before a reply arrived');
     });
     $stream->timeout(30);
     $stream->start;
@@ -86,6 +102,13 @@ sub _tryComplete ($self) {
     return unless $self->{buffer} =~ /\A(?:\d{3}-[^\n]*\n)*\d{3} [^\n]*\n/;
     my $reply = substr($self->{buffer}, 0, $+[0], '');
     (delete $self->{pending})->resolve($reply);
+    return;
+}
+
+# Rejects whatever reply is outstanding. Harmless when none is, which is the
+# ordinary case: a client that has read its 221 and closes has nothing pending.
+sub _abandon ($self, $reason) {
+    (delete $self->{pending})->reject($reason) if $self->{pending};
     return;
 }
 
