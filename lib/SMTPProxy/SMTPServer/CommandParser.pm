@@ -52,7 +52,8 @@ sub parseCommand {
             if (defined $arguments &&
                 $arguments =~ /^FROM:\s*<([^>]*)>(?: (.*))?$/i) {
                 $parsed->{from} = $1;
-                if ($2) {
+                # Definedness, not truth: "0" is a well formed esmtp-keyword.
+                if (defined $2 && length $2) {
                     my $parameters = _parseParameters($2);
                     if ($parameters) {
                         $parsed->{parameters} = $parameters;
@@ -75,7 +76,7 @@ sub parseCommand {
             if (defined $arguments &&
                 $arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/i) {
                 $parsed->{to} = $1;
-                if ($2) {
+                if (defined $2 && length $2) {
                     my $parameters = _parseParameters($2);
                     if ($parameters) {
                         $parsed->{parameters} = $parameters;

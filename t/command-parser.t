@@ -315,4 +315,17 @@ is $bareMail->{suggested_reply}, 501, 'Bare MAIL is still rejected with 501';
 is $bareRcpt->{suggested_reply}, 501, 'Bare RCPT is still rejected with 501';
 is_deeply \@warnings, [], 'Bare MAIL and RCPT parse without warning';
 
+# A parameter list is captured by an optional group, and the test that decided
+# whether to parse it was a truthiness test. "0" is a well formed esmtp-keyword
+# under the grammar below, so it was the one parameter list that evaluated
+# false and vanished -- exactly the silent drop the comment in _parseParameters
+# says must not happen.
+
+my $zeroMail = parse('MAIL FROM:<a@b.com> 0');
+is_deeply $zeroMail->{parameters}, [{ keyword => '0', value => undef }],
+    'A MAIL parameter list of "0" is not dropped';
+my $zeroRcpt = parse('RCPT TO:<a@b.com> 0');
+is_deeply $zeroRcpt->{parameters}, [{ keyword => '0', value => undef }],
+    'A RCPT parameter list of "0" is not dropped';
+
 done_testing();
