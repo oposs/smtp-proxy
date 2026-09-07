@@ -297,4 +297,22 @@ my ($partial, $held) = parseCommand('MAIL FRO');
 is $partial, undef, 'An incomplete line is not a command';
 is $held, 'MAIL FRO', 'An incomplete line is held, not discarded';
 
+# ---------------------------------------------------------------------------
+# A command with no argument at all reaches the argument matches as undef. The
+# AUTH branch guards for that; MAIL and RCPT did not, so every bare MAIL or
+# RCPT -- which is what a probe or a broken client sends -- matched undef and
+# warned. The reply was already right; the noise was not.
+# ---------------------------------------------------------------------------
+
+my @warnings;
+my ($bareMail, $bareRcpt);
+{
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+    $bareMail = parse('MAIL');
+    $bareRcpt = parse('RCPT');
+}
+is $bareMail->{suggested_reply}, 501, 'Bare MAIL is still rejected with 501';
+is $bareRcpt->{suggested_reply}, 501, 'Bare RCPT is still rejected with 501';
+is_deeply \@warnings, [], 'Bare MAIL and RCPT parse without warning';
+
 done_testing();

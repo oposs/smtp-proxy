@@ -47,7 +47,10 @@ sub parseCommand {
             # the keyword is matched without regard to case.
             # An empty reverse path (MAIL FROM:<>) is the null return path
             # used by bounces and DSN messages, so it must be accepted.
-            if ($arguments =~ /^FROM:\s*<([^>]*)>(?: (.*))?$/i) {
+            # A bare MAIL has no argument at all, so $arguments is undef;
+            # the AUTH branch above guards for that and these two did not.
+            if (defined $arguments &&
+                $arguments =~ /^FROM:\s*<([^>]*)>(?: (.*))?$/i) {
                 $parsed->{from} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
@@ -69,7 +72,8 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'RCPT') {
-            if ($arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/i) {
+            if (defined $arguments &&
+                $arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/i) {
                 $parsed->{to} = $1;
                 if ($2) {
                     my $parameters = _parseParameters($2);
