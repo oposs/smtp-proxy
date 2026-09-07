@@ -185,13 +185,18 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
     );
     my $last_ok_message = '';
     $smtp->inactivity_timeout(60); # relax :)
-    my $first_ok_skip;
+    # The response event carries a command id, so the test has to be against
+    # one of those. CMD_DATA_END is the reply to the terminating dot, which is
+    # where the upstream states that it has taken responsibility for the
+    # message -- in production, its queue id.
+    #
+    # It used to compare against CMD_OK, which is a reply class rather than a
+    # command id and happens to have the same numeric value as CMD_EHLO, so the
+    # handler fired once per session on the EHLO reply and never on the one
+    # that was wanted.
     $smtp->on(response => sub ($smtp, $cmd, $resp) {
-        if ($cmd == Mojo::SMTP::Client::CMD_OK) {
-           # and after first response others should be fast enough
-           $last_ok_message = $resp if $resp and $first_ok_skip;
-           $first_ok_skip = 1;
-        }
+        return unless $cmd == Mojo::SMTP::Client::CMD_DATA_END;
+        $last_ok_message = $resp->message if $resp;
     });
     my $rcptParameters = $mail{rcptParameters} // {};
     $smtp->send(
@@ -216,11 +221,19 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
                 return $resultPromise->reject($error);
             }
             else {
-                $log->debug("Upstream server says: ".$resp->message. " ($last_ok_message)");
+                # Mojo::SMTP::Client::Response::message caches into a field it
+                # then forgets to return, so a second call on the same object
+                # yields the empty string. Ask once.
+                my $message = $resp->message;
+                $log->debug("Upstream server says: $message ($last_ok_message)");
                 $log->info('Relayed mail successfully for ' .
                     $clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
-                $resultPromise->resolve($last_ok_message // $resp->message);
+                # Defined-or was never the right test: the accumulator starts
+                # as the empty string, which is defined, so the fallback could
+                # not be reached even when nothing had been collected.
+                $resultPromise->resolve(length($last_ok_message)
+                    ? $last_ok_message : $message);
             }
         }
     );
