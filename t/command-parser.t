@@ -328,4 +328,27 @@ my $zeroRcpt = parse('RCPT TO:<a@b.com> 0');
 is_deeply $zeroRcpt->{parameters}, [{ keyword => '0', value => undef }],
     'A RCPT parameter list of "0" is not dropped';
 
+# RFC 4954 section 4 spells a SASL mechanism name as up to 20 characters of
+# upper alpha, digit, hyphen and underscore. \w excludes the hyphen, so every
+# hyphenated mechanism -- CRAM-MD5, SCRAM-SHA-256, the two a client is most
+# likely to try before falling back -- failed to parse and drew 501. A client
+# reads 501 as "that line was malformed", not as "pick another mechanism", so
+# it has no reason to fall back; 504 is the answer that says what it needs.
+
+my $cramMd5 = parse('AUTH CRAM-MD5');
+ok !$cramMd5->{error}, 'A hyphenated AUTH mechanism parses';
+is $cramMd5->{mechanism}, 'CRAM-MD5', 'The hyphenated mechanism name is kept';
+
+my $scram = parse('AUTH SCRAM-SHA-256 abcd');
+is $scram->{mechanism}, 'SCRAM-SHA-256', 'Hyphens throughout the name are kept';
+is $scram->{initial}, 'abcd', 'The initial response is still separated off';
+
+my $underscore = parse('AUTH X_MECH');
+is $underscore->{mechanism}, 'X_MECH', 'An underscore is a legal mech-char too';
+
+# The bound is part of the grammar, so a name that cannot be one is still a
+# malformed argument rather than an unsupported mechanism.
+my $tooLong = parse('AUTH ' . ('A' x 21));
+is $tooLong->{suggested_reply}, 501, 'An over-long mechanism name is rejected';
+
 done_testing();

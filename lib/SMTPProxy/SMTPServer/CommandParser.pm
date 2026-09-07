@@ -32,7 +32,13 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'AUTH') {
-            if (defined $arguments && $arguments =~ /^(\w+)(?: (.*))?$/) {
+            # RFC 4954 section 4: a mechanism name is 1*20 of upper alpha,
+            # digit, hyphen and underscore. \w would have covered all of that
+            # bar the hyphen, which is what CRAM-MD5 and every SCRAM- name
+            # contain, so those failed to parse and drew a 501 the client can
+            # do nothing with instead of the 504 that tells it to try another.
+            if (defined $arguments &&
+                $arguments =~ /^([A-Za-z0-9_-]{1,20})(?: (.*))?$/) {
                 $parsed->{mechanism} = uc $1;
                 $parsed->{initial} = $2;
             }

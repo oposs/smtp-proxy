@@ -14,7 +14,7 @@ use RawSMTPClient;
 use SMTPProxy::SMTPServer;
 use Test::More;
 
-plan tests => 12;
+plan tests => 14;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_PORT = Mojo::IOLoop::Server->generate_port;
@@ -70,7 +70,25 @@ Mojo::IOLoop->next_tick(sub {
                         })
                         ->then(sub ($r) { $reply{recovered} = $r; $bad->close; return })
                         ->catch(sub ($err) { fail "Recovery session failed: $err" })
-                        ->finally(sub { Mojo::IOLoop->stop });
+                        ->finally(sub {
+                            # Fourth connection: a mechanism we do not offer
+                            # must be declined as a mechanism, not as a
+                            # syntax error, or the client will not fall back.
+                            my $auth = RawSMTPClient->new(
+                                address => $TEST_HOST, port => $TEST_PORT);
+                            $auth->connect_p
+                                ->then(sub { $auth->command_p('EHLO client.example.com') })
+                                ->then(sub { $auth->command_p('AUTH CRAM-MD5') })
+                                ->then(sub ($r) {
+                                    $reply{cramMd5} = $r;
+                                    $auth->command_p('AUTH DIGEST-MD5 abcd');
+                                })
+                                ->then(sub ($r) {
+                                    $reply{digestMd5} = $r; $auth->close; return
+                                })
+                                ->catch(sub ($err) { fail "AUTH session failed: $err" })
+                                ->finally(sub { Mojo::IOLoop->stop });
+                        });
                 });
         });
 });
@@ -100,3 +118,10 @@ like $reply{rset}, qr/^250 /, 'RSET accepted';
 # packet the client sent afterwards did the same.
 like $reply{malformed}, qr/^500 /, 'A malformed line is rejected';
 like $reply{recovered}, qr/^250 /, 'The next command is still answered';
+
+# RFC 4954 section 4 allows a hyphen in a mechanism name. Rejecting one as a
+# syntax error tells the client its line was malformed, which is not something
+# it can act on; 504 tells it to offer a different mechanism.
+like $reply{cramMd5}, qr/^504 /, 'A hyphenated mechanism draws 504, not 501';
+like $reply{digestMd5}, qr/^504 /,
+    'A hyphenated mechanism with an initial response draws 504 too';
