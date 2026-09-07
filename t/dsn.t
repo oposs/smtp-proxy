@@ -162,9 +162,12 @@ is_deeply $lastCall->{mailParameters}, [
         { keyword => 'RET',   value => 'HDRS'     },
         { keyword => 'ENVID', value => 'QQ314159' },
     ], 'MAIL parameters passed to the API';
-is_deeply $lastCall->{rcptParameters}, {
-        'another@foobaz.com' => [
-            { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
-            { keyword => 'ORCPT',  value => 'rfc822;another@foobaz.com' },
-        ],
-    }, 'RCPT parameters passed to the API, keyed by recipient';
+is_deeply $lastCall->{rcptParameters}, [
+        {
+            address => 'another@foobaz.com',
+            parameters => [
+                { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
+                { keyword => 'ORCPT',  value => 'rfc822;another@foobaz.com' },
+            ],
+        },
+    ], 'RCPT parameters passed to the API, one entry per recipient';

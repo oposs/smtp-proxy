@@ -68,8 +68,14 @@ sub setup ($self) {
             return Mojo::Promise->resolve('got MAIL');
         });
         $connection->rcpt(sub ($to, $parameters) {
-            push @{$collected{to} //= []}, $to;
-            ($collected{rcptParameters} //= {})->{$to} = $parameters // [];
+            # One entry per RCPT, in the order they arrived, rather than a map
+            # keyed by address. The same recipient may legitimately be given
+            # twice with different DSN parameters -- extra RCPTs are an
+            # explicitly supported path -- and a map merges those two into
+            # whichever came last, which RFC 3461 5.2.1 forbids and which turns
+            # NOTIFY=NEVER into NOTIFY=SUCCESS rather than losing it.
+            push @{$collected{recipients} //= []},
+                { address => $to, parameters => $parameters // [] };
             return Mojo::Promise->resolve('got RCPT');
         });
         $connection->data(sub ($headersPromise, $bodyPromise) {
@@ -150,14 +156,19 @@ sub _dropPrivs ($self) {
 
 sub _callAPI ($self,$log, %collected) {
     $log->debug('Making call to auth/headers API');
+    my $recipients = $collected{recipients} // [];
     return $self->api->check($log,
         username => $collected{username},
         password => $collected{password},
         from => $collected{from},
-        to => $collected{to},
+        # `to` keeps its long standing shape, a flat list of addresses in the
+        # order they were given. The parameters travel beside it, one entry per
+        # RCPT, so an API that wants to see them can and one that does not is
+        # unaffected.
+        to => [map { $_->{address} } @$recipients],
         headers => $collected{headers},
         mailParameters => $collected{mailParameters},
-        rcptParameters => $collected{rcptParameters}
+        rcptParameters => $recipients
     );
 }
 
@@ -198,16 +209,14 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
         return unless $cmd == Mojo::SMTP::Client::CMD_DATA_END;
         $last_ok_message = $resp->message if $resp;
     });
-    my $rcptParameters = $mail{rcptParameters} // {};
     $smtp->send(
         from     => {
             address    => $apiResult->{from} || $mail{from},
             parameters => $mail{mailParameters},
         },
-        to       => [map { {
-            address    => $_,
-            parameters => $rcptParameters->{$_},
-        } } @{$mail{to}}],
+        # Already the shape RelayClient::_splitAddress consumes, so there is no
+        # re-join by address here to get wrong.
+        to       => $mail{recipients},
         data     => $formattedHeaders . "\r\n" . $mail{body},
         quit     => 1,
         sub {
@@ -320,13 +329,19 @@ An object having a method `check`, which will be called like this:
             { keyword => 'RET', value => 'HDRS' },
             ...
         ],
-        # ESMTP parameters given on RCPT TO, keyed by recipient
-        rcptParameters => {
-            'x@baz.com' => [
-                { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
-                ...
-            ],
-        })
+        # ESMTP parameters given on RCPT TO, one entry per RCPT command in
+        # the order received, so a recipient repeated with different
+        # parameters is reported as the two requests it was
+        rcptParameters => [
+            {
+                address => 'x@baz.com',
+                parameters => [
+                    { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
+                    ...
+                ],
+            },
+            ...
+        ])
 
 A parameter given without a value, which RFC 5321 permits, has an undefined
 C<value>. The RFC 3461 delivery status notification parameters (C<RET> and

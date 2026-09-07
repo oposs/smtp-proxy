@@ -52,9 +52,10 @@ SMTPProxy::API - calls the REST API to do authentication
             ...
         ],
         mailParameters => [{ keyword => 'RET', value => 'HDRS' }],
-        rcptParameters => {
-            'x@baz.com' => [{ keyword => 'NOTIFY', value => 'SUCCESS' }],
-        })
+        rcptParameters => [
+            { address => 'x@baz.com',
+              parameters => [{ keyword => 'NOTIFY', value => 'SUCCESS' }] },
+        ])
     );
     $resultPromise->then(sub {
         my $result = shift;
