@@ -192,4 +192,61 @@ for my $bad ('NOTIFY=', '=SUCCESS', 'NOTIFY=A=B', '-BAD=1') {
     is $parsed->{suggested_reply}, 501, "malformed parameter '$bad' is rejected";
 }
 
+# ---------------------------------------------------------------------------
+# RFC 5321 4.5.1 minimum implementation: EHLO, HELO, MAIL, RCPT, DATA, RSET,
+# NOOP, QUIT and VRFY must all be understood.
+# ---------------------------------------------------------------------------
+
+my $helo = parse('HELO client.example.com');
+is $helo->{command}, 'HELO', 'HELO is recognised';
+ok !$helo->{error}, 'HELO is not rejected as an unknown command';
+is $helo->{domain}, 'client.example.com', 'HELO domain is captured';
+
+my $ehlo = parse('EHLO client.example.com');
+is $ehlo->{domain}, 'client.example.com', 'EHLO domain is captured';
+
+my $noop = parse('NOOP');
+is $noop->{command}, 'NOOP', 'NOOP is recognised';
+ok !$noop->{error}, 'NOOP is not rejected as an unknown command';
+
+# RFC 5321 4.1.1.9 allows NOOP an optional argument, which is ignored.
+my $noopArg = parse('NOOP keep alive');
+ok !$noopArg->{error}, 'NOOP with an argument is accepted';
+
+# ---------------------------------------------------------------------------
+# The unparsed remainder of the buffer must survive intact, or any client that
+# puts two commands in one packet loses everything after the first.
+# ---------------------------------------------------------------------------
+
+my ($first, $rest) = parseCommand("MAIL FROM:<a\@b.com>\r\nRCPT TO:<c\@d.com>\r\nDATA\r\n");
+is $first->{command}, 'MAIL', 'First of several pipelined commands parsed';
+is $rest, "RCPT TO:<c\@d.com>\r\nDATA\r\n",
+    'Remaining commands left in the buffer untouched';
+
+my ($second, $stillRest) = parseCommand($rest);
+is $second->{command}, 'RCPT', 'Second pipelined command parses from the remainder';
+is $stillRest, "DATA\r\n", 'Third command still queued';
+
+my ($third) = parseCommand($stillRest);
+is $third->{command}, 'DATA', 'Third pipelined command parses';
+
+# ---------------------------------------------------------------------------
+# RFC 4954 2: the AUTH mechanism name is case insensitive.
+# ---------------------------------------------------------------------------
+
+is parse('AUTH PLAIN dGVzdA==')->{mechanism}, 'PLAIN', 'Uppercase mechanism';
+is parse('AUTH plain dGVzdA==')->{mechanism}, 'PLAIN', 'Lowercase mechanism normalised';
+is parse('AUTH PlAiN dGVzdA==')->{mechanism}, 'PLAIN', 'Mixed case mechanism normalised';
+is parse('AUTH login')->{mechanism}, 'LOGIN', 'LOGIN mechanism normalised';
+is parse('AUTH plain dGVzdA==')->{initial}, 'dGVzdA==', 'Initial response preserved';
+
+# A bare AUTH is a syntax error, and must not warn on the way to saying so.
+my @warnings;
+my $bareAuth = do {
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+    parse('AUTH');
+};
+is $bareAuth->{suggested_reply}, 501, 'Bare AUTH is rejected';
+is_deeply \@warnings, [], 'Bare AUTH does not warn about undefined values';
+
 done_testing();

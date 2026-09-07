@@ -189,19 +189,26 @@ sub _processCommand ($self, $command) {
     }
     else {
         # Go by state.
-        my $methodName = @STATE_METHODS[$self->state];
+        my $methodName = $STATE_METHODS[$self->state];
         $self->$methodName($command);
     }
 }
 
 sub _processInitialEhlo ($self, $command) {
     my $commandName = $command->{command};
-    if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
+    if ($commandName eq 'EHLO') {
         $self->_sendReply(250,
             $self->service_name . ' offers a warm hug of welcome',
             'STARTTLS',
             ($self->require_starttls ? () : 'AUTH PLAIN LOGIN'),
             'DSN');
+        $self->state(WANT_STARTTLS);
+    }
+    elsif ($commandName eq 'HELO') {
+        # HELO is basic SMTP: a single line, and no extension keywords, since
+        # the client has not asked whether we speak any (RFC 5321 4.1.1.1).
+        $self->_sendReply(250,
+            $self->service_name . ' offers a warm hug of welcome');
         $self->state(WANT_STARTTLS);
     }
     else {
@@ -254,11 +261,16 @@ sub _processStartTLS ($self, $command) {
 
 sub _processTLSEhlo ($self, $command) {
     my $commandName = $command->{command};
-    if ($commandName eq 'EHLO' || $commandName eq 'HELO') {
+    if ($commandName eq 'EHLO') {
         $self->_sendReply(250,
             $self->service_name . ' offers another warm hug of welcome',
             'AUTH PLAIN LOGIN',
             'DSN');
+        $self->state(WANT_AUTH);
+    }
+    elsif ($commandName eq 'HELO') {
+        $self->_sendReply(250,
+            $self->service_name . ' offers another warm hug of welcome');
         $self->state(WANT_AUTH);
     }
     else {
