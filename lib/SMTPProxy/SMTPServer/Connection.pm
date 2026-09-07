@@ -13,7 +13,8 @@ use Scalar::Util qw(weaken);
 
 has [qw(service_name require_starttls tls_cert tls_key require_auth
      id log credentials clientAddress auth mail rcpt data vrfy rset quit
-    smtplogHandle stream dataEater setupCallback state tlsActive)];
+    smtplogHandle stream dataEater setupCallback state tlsActive
+    dsnAvailable)];
 
 
 # States we may be in.
@@ -317,7 +318,13 @@ sub _processGreeting ($self, $command) {
         push @extensions, 'STARTTLS' unless $tlsEstablished;
         push @extensions, 'AUTH PLAIN LOGIN'
             if $tlsEstablished || !$self->require_starttls;
-        push @extensions, 'DSN';
+        # Announcing DSN is what makes a conforming client ask for delivery
+        # notifications (RFC 3461 4.1), so it may only be announced when they
+        # can actually be produced. Whoever set this connection up is the one
+        # who knows; with no answer supplied we announce it, which is what a
+        # bare SMTP server with no relay behind it should do.
+        my $dsn = $self->dsnAvailable;
+        push @extensions, 'DSN' if !$dsn || $dsn->();
     }
     # HELO is basic SMTP: a single line, and no extension keywords, since the
     # client has not asked whether we speak any (RFC 5321 4.1.1.1).

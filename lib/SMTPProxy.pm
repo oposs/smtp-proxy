@@ -17,6 +17,14 @@ has [qw(
     smtplog credentials
 )];
 
+# Whether the upstream announces DSN. Undefined until we have asked it, and
+# treated as "no" until then: announcing DSN to a client is a promise that
+# notifications it asks for will be produced, and the cost of getting that
+# wrong in this direction is that a sender who asked for silence with
+# NOTIFY=NEVER gets the RFC 3461 default of FAILURE instead. The cost the other
+# way is only that a client does not ask.
+has 'upstreamDsn';
+
 has log => sub ($self) {
     Mojo::Log->new(
         path => $self->{logpath} || '/dev/stderr',
@@ -37,6 +45,7 @@ sub setup ($self) {
         require_starttls => 1,
         require_auth => 1,
         timeout => 0,
+        dsnAvailable => sub { $self->upstreamDsn ? 1 : 0 },
     );
     $server->setup(sub ($connection) {
         # State the proxy collects to send to the API and target mail
@@ -143,6 +152,60 @@ sub setup ($self) {
         });
     });
     $self->_dropPrivs if $self->user;
+    $self->probeUpstream;
+    return;
+}
+
+# There is no upstream connection at the time a client sends EHLO, so whether
+# DSN can be honoured is not knowable from the session itself. It is asked once
+# here, at startup, and kept current from every mail that is relayed
+# afterwards, so an upstream that gains or loses the extension is noticed
+# without polling it.
+#
+# Returns a promise that resolves once the answer is in, or once asking has
+# failed; it never rejects. A client that connects before the answer arrives is
+# simply not offered DSN.
+sub probeUpstream ($self) {
+    my $log = $self->log;
+    my $where = $self->tohost . ':' . $self->toport;
+    my $done = Mojo::Promise->new;
+    my $probe = SMTPProxy::RelayClient->new(
+        address => $self->tohost,
+        port => $self->toport,
+        log => $log,
+    );
+    # Kept here rather than closed over, so the callback does not hold the
+    # client alive through a reference cycle.
+    $self->{upstreamProbeClient} = $probe;
+    $log->debug("Asking $where which extensions it offers");
+    $probe->send(quit => 1, sub ($probe, $resp) {
+        delete $self->{upstreamProbeClient};
+        if (my $error = $resp->error) {
+            $log->warn("Could not ask $where which extensions it offers " .
+                "($error); DSN will not be announced until a mail is relayed");
+        }
+        else {
+            $self->_noteUpstreamDsn($log, $where, $probe->upstreamSupportsDsn);
+        }
+        $done->resolve;
+    });
+    return $self->{upstreamProbe} = $done;
+}
+
+# For tests and for anything that wants to wait until the answer is in.
+sub upstreamProbe ($self) {
+    return $self->{upstreamProbe};
+}
+
+sub _noteUpstreamDsn ($self, $log, $where, $supported) {
+    my $previous = $self->upstreamDsn;
+    $self->upstreamDsn($supported);
+    return if defined $previous && $previous == $supported;
+    $log->info("$where " .
+        ($supported ? 'announces DSN' : 'does not announce DSN') .
+        '; the extension will ' . ($supported ? '' : 'not ') .
+        'be offered to clients');
+    return;
 }
 
 sub _dropPrivs ($self) {
@@ -206,6 +269,13 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
     # handler fired once per session on the EHLO reply and never on the one
     # that was wanted.
     $smtp->on(response => sub ($smtp, $cmd, $resp) {
+        # Every relay re-answers the question the startup probe asked, so the
+        # announcement follows an upstream that gains or loses DSN.
+        if ($cmd == Mojo::SMTP::Client::CMD_EHLO) {
+            $self->_noteUpstreamDsn($log, $self->tohost . ':' . $self->toport,
+                $smtp->upstreamSupportsDsn);
+            return;
+        }
         return unless $cmd == Mojo::SMTP::Client::CMD_DATA_END;
         $last_ok_message = $resp->message if $resp;
     });

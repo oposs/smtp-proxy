@@ -16,7 +16,7 @@ use RecordingSMTPServer;
 use SMTPProxy;
 use Test::More;
 
-plan tests => 18;
+plan tests => 20;
 
 my $TEST_HOST = '127.0.0.1';
 my $TEST_LOG = Mojo::Log->new(level => $ENV{TEST_LOG_LEVEL} // 'warn');
@@ -38,7 +38,7 @@ my $DSN_PROXY_PORT = Mojo::IOLoop::Server->generate_port;
 my $PLAIN_PROXY_PORT = Mojo::IOLoop::Server->generate_port;
 
 sub setupProxy ($listenPort, $upstream) {
-    SMTPProxy->new(
+    my $proxy = SMTPProxy->new(
         log => $TEST_LOG,
         listen => [$TEST_HOST . ':' . $listenPort],
         tohost => $TEST_HOST,
@@ -47,7 +47,9 @@ sub setupProxy ($listenPort, $upstream) {
         tls_key => "$FindBin::Bin/certs-and-keys/server.key",
         api => $testApi,
         service_name => 'smtp.proxy.service',
-    )->setup;
+    );
+    $proxy->setup;
+    return $proxy;
 }
 
 # Drives one full session through the proxy, returning a promise that resolves
@@ -91,10 +93,14 @@ sub sendWithDsn_p ($proxyPort, %opt) {
 Mojo::IOLoop->next_tick(sub {
     $dsnUpstream->start;
     $plainUpstream->start;
-    setupProxy($DSN_PROXY_PORT, $dsnUpstream);
-    setupProxy($PLAIN_PROXY_PORT, $plainUpstream);
+    my $dsnProxy = setupProxy($DSN_PROXY_PORT, $dsnUpstream);
+    my $plainProxy = setupProxy($PLAIN_PROXY_PORT, $plainUpstream);
 
-    sendWithDsn_p($DSN_PROXY_PORT)->then(sub ($reply) {
+    # Each proxy asks its upstream which extensions it offers as it starts.
+    # Wait for both answers, so what a client is told does not depend on
+    # whether it beat the question.
+    Mojo::Promise->all($dsnProxy->upstreamProbe, $plainProxy->upstreamProbe)
+    ->then(sub { sendWithDsn_p($DSN_PROXY_PORT) })->then(sub ($reply) {
 
         # The proxy must announce DSN, or a conforming client (RFC 3461
         # section 4.1) will never send NOTIFY in the first place.
@@ -129,6 +135,17 @@ Mojo::IOLoop->next_tick(sub {
 
         return sendWithDsn_p($PLAIN_PROXY_PORT);
     })->then(sub ($reply) {
+
+        # The upstream cannot do DSN, so the proxy must not tell a client it
+        # can. Announcing it is what makes a conforming client ask for
+        # notifications, and dropping a NOTIFY=NEVER afterwards does not lose
+        # the request -- it inverts it, reverting the upstream to the RFC 3461
+        # default of FAILURE and sending backscatter to a sender who asked for
+        # silence.
+        unlike $reply->{plainEhlo}, qr/^250[- ]DSN\r?$/m,
+            'EHLO before STARTTLS does not advertise DSN for a plain upstream';
+        unlike $reply->{tlsEhlo}, qr/^250[- ]DSN\r?$/m,
+            'EHLO after STARTTLS does not advertise DSN for a plain upstream';
 
         # RFC 3461 section 5.2.2: a relay whose next hop cannot do DSN must not
         # pass the parameters on. Dropping them is strictly worse than issuing

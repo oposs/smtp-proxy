@@ -9,7 +9,7 @@ use Scalar::Util qw(weaken);
 
 has [qw(
     listen log tls_cert tls_key service_name require_starttls require_auth
-    timeout smtplog credentials
+    timeout smtplog credentials dsnAvailable
 )];
 
 sub setup ($self, $callback) {
@@ -43,6 +43,7 @@ sub setup ($self, $callback) {
                     service_name => $self->service_name,
                     clientAddress => $clientAddress,
                     smtplogHandle => $smtplogHandle,
+                    dsnAvailable => $self->dsnAvailable,
                     setupCallback => $callback,
                 );
                 # keeping a reverence to the connection object is

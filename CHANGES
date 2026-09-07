@@ -13,10 +13,11 @@ unreleased
    is answered 504 rather than 501
  - MAIL FROM:<> is accepted, so a bounce or a DSN can be relayed
  - a group of commands sent in one write is processed in order, one at a time
- - DSN is announced and the RFC 3461 parameters (RET, ENVID, NOTIFY, ORCPT)
-   are relayed to an upstream that announces DSN. They are validated where
-   they are given: a malformed one is answered 501 at the MAIL or RCPT that
-   carried it
+ - DSN is announced, and the RFC 3461 parameters (RET, ENVID, NOTIFY, ORCPT)
+   are relayed, only when the upstream server announces DSN itself. The proxy
+   asks it once at startup and keeps the answer current from every mail it
+   relays. The parameters are validated where they are given: a malformed one
+   is answered 501 at the MAIL or RCPT that carried it
  - the upstream's acceptance text, which is its queue id, is relayed to the
    submitting client instead of an empty one
  - the API request carries two new fields, mailParameters and rcptParameters;
