@@ -8,7 +8,9 @@ our @EXPORT = qw(parseCommand);
 sub parseCommand {
     my $buffer = shift;
     my $parsed;
-    if ($buffer =~ /^([A-Za-z]+)(?: (.*))?\r\n(.*)/) {
+    # /s so the unparsed remainder keeps its line breaks; the argument group
+    # is bounded explicitly so it still cannot run past the end of the line.
+    if ($buffer =~ /^([A-Za-z]+)(?: ([^\r\n]*))?\r\n(.*)/s) {
         # Trim parsed command from the buffer, set up parsed result.
         $buffer = $3;
         my $command = uc $1;
@@ -16,8 +18,11 @@ sub parseCommand {
         $parsed = { command => $command };
 
         # Now parse by command.
-        if ($command eq 'EHLO' || $command eq 'EHLO') {
+        if ($command eq 'EHLO' || $command eq 'HELO') {
             $parsed->{domain} = $arguments;
+        }
+        elsif ($command eq 'NOOP') {
+            # RFC 5321 4.1.1.9 allows an argument, which is ignored.
         }
         elsif ($command eq 'PING') {
             $parsed->{text} = $arguments;
@@ -30,8 +35,8 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'AUTH') {
-            if ($arguments =~ /^(\w+)(?: (.*))?$/) {
-                $parsed->{mechanism} = $1;
+            if (defined $arguments && $arguments =~ /^(\w+)(?: (.*))?$/) {
+                $parsed->{mechanism} = uc $1;
                 $parsed->{initial} = $2;
             }
             else {
