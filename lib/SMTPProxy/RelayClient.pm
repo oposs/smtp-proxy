@@ -84,9 +84,30 @@ sub _cmd_to {
 }
 
 sub _splitAddress ($arg) {
-    return ref $arg eq 'HASH'
+    my ($address, $parameters) = ref $arg eq 'HASH'
         ? ($arg->{address}, $arg->{parameters})
         : ($arg, undef);
+    _assertRelayable($address);
+    return ($address, $parameters);
+}
+
+# Every address the proxy relays reaches an upstream command line through here,
+# and the superclass writes that line followed by CRLF without looking at it.
+# The command parser is the proxy's single point of validation for what a
+# client sent, but it is not on the path for an address the API substituted for
+# the envelope sender: that arrives as a JSON string and is interpolated
+# straight into MAIL FROM:<...>. A CR or LF in one is a further command
+# injected into an authenticated upstream session, which is the same class of
+# bug as the reply-line injection guarded against on the client-facing side.
+#
+# RFC 5321 4.1.2 builds a path out of printable ASCII; the angle brackets are
+# excluded on top of that because this code supplies them. An empty address is
+# the null return path and is allowed.
+sub _assertRelayable ($address) {
+    $address //= '';
+    return if $address =~ /\A[\x21-\x7e]*\z/ && $address !~ /[<>]/;
+    die "Refusing to relay the address '$address': it contains characters " .
+        "that cannot appear in an SMTP command line\n";
 }
 
 # Called from inside a command step, so the upstream EHLO reply has arrived by
