@@ -3,6 +3,11 @@ package SMTPProxy;
 use Mojo::Base -base, -signatures;
 use Mojo::Log;
 use Mojo::Promise;
+# Named below for its command id constants. Loaded explicitly rather than left
+# to arrive as a side effect of RelayClient inheriting from it: that made this
+# file compile only for as long as that inheritance happens to exist, and
+# nothing here would have said so.
+use Mojo::SMTP::Client ();
 use SMTPProxy::RelayClient;
 use SMTPProxy::SMTPServer;
 use Mojo::Util qw(dumper);
