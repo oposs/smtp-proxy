@@ -92,8 +92,14 @@ sub _setupReader ($self) {
             if ($self->smtplogHandle) {
                 my $parsed = substr($initialBuffer, 0,
                     length($initialBuffer) - length($buffer));
-                if (!$self->credentials && $command->{command} eq 'AUTH') {
-                    $parsed =~ s/^(AUTH\s+\w+\s+).+$/$1\[REDACTED]/;
+                # The AUTH argument carries the credentials, so it is redacted
+                # unless we were asked to log them. This matches the raw line
+                # rather than the parse: RFC 4954 section 2 makes the verb and
+                # the mechanism name case insensitive, so the bytes need not be
+                # spelled the way the parser reports them, and a line we failed
+                # to parse at all can still hold a secret.
+                if (!$self->credentials) {
+                    $parsed =~ s/^(AUTH\s+\S+\s+).+$/$1\[REDACTED]/i;
                 }
                 $self->_writeSmtpLogEntry(0, $parsed);
             }
