@@ -7,6 +7,7 @@ use Mojo::IOLoop::TLS;
 use Mojo::Promise;
 use MIME::Base64;
 use SMTPProxy::SMTPServer::CommandParser;
+use SMTPProxy::SMTPServer::DsnParameters;
 use SMTPProxy::SMTPServer::ReplyFormatter;
 use Scalar::Util qw(weaken);
 
@@ -437,8 +438,22 @@ sub _makeAuthCallback ($self, @args) {
     }
 }
 
+# We announce DSN, so RFC 3461 section 5.1 obliges us to answer 501 to a
+# parameter that does not meet its grammar -- here, at the command that carried
+# it, rather than by handing it to the upstream and discovering it after the
+# client has transferred a whole message body.
+sub _rejectBadDsnParameters ($self, $command, $which) {
+    my $error = validateDsnParameters($command->{parameters}, $which);
+    return 0 unless $error;
+    $self->log->debug("Rejected $which parameters from " .
+        $self->clientAddress . ": $error");
+    $self->_sendReply(501, $error);
+    return 1;
+}
+
 sub _processMail ($self, $command) {
     if ($command->{command} eq 'MAIL') {
+        return if $self->_rejectBadDsnParameters($command, 'MAIL');
         my $promise = $self->mail->($command->{from}, $command->{parameters});
         $promise->then(
             sub {
@@ -460,6 +475,7 @@ sub _processMail ($self, $command) {
 
 sub _processRcpt  ($self, $command)  {
     if ($command->{command} eq 'RCPT') {
+        return if $self->_rejectBadDsnParameters($command, 'RCPT');
         my $promise = $self->rcpt->($command->{to}, $command->{parameters});
         $promise->then(
             sub {

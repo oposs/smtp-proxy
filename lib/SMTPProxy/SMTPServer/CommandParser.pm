@@ -147,7 +147,12 @@ sub _parseParameters {
     my @paramStrings = split ' ', shift;
     my @parameters;
     for (@paramStrings) {
-        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([^\x00-\x20=]+))?$/) {
+        # RFC 5321 4.1.2: an esmtp-value is made of characters excluding "=",
+        # space and the control characters, which is to say printable ASCII.
+        # Spelling it as a negated class also admitted DEL and every octet from
+        # 0x80 up, so a value could carry bytes onto an upstream command line
+        # in a session where SMTPUTF8 was never negotiated.
+        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([\x21-\x3c\x3e-\x7e]+))?$/) {
             push @parameters, { keyword => $1, value => $2 };
         }
         else {

@@ -371,4 +371,19 @@ my $vrfyStillWorks = parse('VRFY someone@example.com');
 ok !$vrfyStillWorks->{error}, 'VRFY with a string is still accepted';
 is $vrfyStillWorks->{string}, 'someone@example.com', 'and still carries it';
 
+# RFC 5321 4.1.2 builds an esmtp-value out of characters excluding "=", space
+# and the control characters -- which is to say printable ASCII. The class used
+# here also admitted DEL and every octet from 0x80 up, so a parameter value
+# could put bytes on an upstream command line in a session where SMTPUTF8 was
+# never negotiated.
+
+for my $bad ("X=caf\xe9", "X=del\x7f", "X=\xff") {
+    my $parsed = parse("RCPT TO:<a\@b.com> $bad");
+    is $parsed->{suggested_reply}, 501,
+        'a parameter value outside printable ASCII is rejected';
+}
+
+my $printable = parse('RCPT TO:<a@b.com> X=~!$%^&*()_+{}|:"<>?');
+ok !$printable->{error}, 'printable ASCII is still accepted in a value';
+
 done_testing();
