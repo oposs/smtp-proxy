@@ -20,7 +20,12 @@ datadir = $(prefix)
 nobase_data_DATA = $(PUB) $(TEMPL) $(SHARE)
 
 README.md COPYRIGHT: VERSION
-	$(PERL) -i -p -e 's/(#VERSION#|\d+\.\d+\.\d+[^.\s]*)/$(PACKAGE_VERSION)/g;s/(#YEAR#|20[1-9]\d)/$(YEAR)/g;s/(#DATE#|20[1-9]\d-[01]\d-[0-3]\d)/$(DATE)/g;' $@
+# Substitutes the markers only. The version half used to also match any
+# bare \d+\.\d+\.\d+, which in these two files has never had a legitimate
+# target -- neither uses a #VERSION# marker and neither carries a version
+# string -- but did match the 0.0.0.0 in the --listen documentation, and
+# rewrote it to the package version on every release.
+	$(PERL) -i -p -e 's/#VERSION#/$(PACKAGE_VERSION)/g;s/(#YEAR#|20[1-9]\d)/$(YEAR)/g;s/(#DATE#|20[1-9]\d-[01]\d-[0-3]\d)/$(DATE)/g;' $@
 
 
 

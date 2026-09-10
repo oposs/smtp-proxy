@@ -95,7 +95,7 @@ cd smtp-proxy
 ```
     --man            show man-page and exit
  -h,--help           display this help and exit
-    --listen=ip:port on which IP should we listen; use 0.7.7.0 to listen on all
+    --listen=ip:port on which IP should we listen; use 0.0.0.0 to listen on all
     --user=x         drop privileges and become this user after start
     --tohost=x       host of the SMTP server to proxy to
     --toport=x       port of the SMTP server to proxy to
