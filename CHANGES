@@ -1,5 +1,6 @@
 unreleased
 
+ - update Perl modules
  - SMTP protocol conformance against the RFC 5321 4.5.1 minimum
    implementation. Reply codes a client can see have changed: HELO and NOOP
    are answered 250 rather than 502, NOOP takes the argument RFC 5321 4.1.1.9
