@@ -5,9 +5,13 @@ AUTOMAKE_OPTIONS =  foreign
 SUBDIRS = bin lib thirdparty
 
 PERLTESTS := $(shell find -L t -name "*.t")
+PERLTESTLIBS := $(shell find -L t -name "*.pm")
 PM := $(shell find -L lib -name "*.pm")
+# The certificates four of the tests need in order to do STARTTLS. Without
+# them a dist tarball ships tests that cannot run.
+PERLTESTDATA := $(shell find -L t/certs-and-keys -type f)
 
-EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(SHARE)
+EXTRA_DIST = VERSION cpanfile COPYRIGHT LICENSE CHANGES AUTHORS bootstrap $(PUB) $(wildcard t/*.t) $(POD) $(TEMPL) $(PERLTESTS) $(PERLTESTLIBS) $(PERLTESTDATA) $(SHARE)
 
 YEAR := $(shell date +%Y)
 DATE := $(shell date +%Y-%m-%d)
@@ -20,5 +24,9 @@ README.md COPYRIGHT: VERSION
 
 
 
+# The recipe below is indented with a tab. It was three spaces, which made
+# automake read it as a variable assignment rather than a recipe, so the
+# target had an empty body and `make test` reported "Nothing to be done"
+# and succeeded without running anything.
 test:
-   MOJO_REACTOR=Mojo::Reactor::EV LIBEV_FLAGS=4 prove -w
+	MOJO_REACTOR=Mojo::Reactor::EV LIBEV_FLAGS=4 prove -w -Ilib -Ithirdparty/lib/perl5 -It t/

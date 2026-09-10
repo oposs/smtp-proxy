@@ -1,3 +1,30 @@
+unreleased
+
+ - SMTP protocol conformance against the RFC 5321 4.5.1 minimum
+   implementation. Reply codes a client can see have changed: HELO and NOOP
+   are answered 250 rather than 502, NOOP takes the argument RFC 5321 4.1.1.9
+   allows, PING is no longer a command and draws 502 rather than 503, and
+   EHLO or HELO is now accepted at any point in a session and resets the
+   transaction as RSET does (RFC 5321 4.1.4)
+ - EHLO and HELO without a domain, and VRFY without a string, are now
+   answered 501 rather than accepted
+ - the MAIL FROM and RCPT TO keywords, and the AUTH verb and mechanism name,
+   are matched without regard to case; an AUTH mechanism containing a hyphen
+   is answered 504 rather than 501
+ - MAIL FROM:<> is accepted, so a bounce or a DSN can be relayed
+ - a group of commands sent in one write is processed in order, one at a time
+ - DSN is announced, and the RFC 3461 parameters (RET, ENVID, NOTIFY, ORCPT)
+   are relayed, only when the upstream server announces DSN itself. The proxy
+   asks it once at startup and keeps the answer current from every mail it
+   relays. The parameters are validated where they are given: a malformed one
+   is answered 501 at the MAIL or RCPT that carried it
+ - the upstream's acceptance text, which is its queue id, is relayed to the
+   submitting client instead of an empty one
+ - the API request carries two new fields, mailParameters and rcptParameters;
+   see README.md
+ - the submitting user's password is no longer written to the main log when
+   the API answers with anything other than a 2xx
+
 0.7.7 2023-07-21 14:34:38 +0200 Tobias Oetiker <tobi@oetiker.ch>
 
  - further improve failure handling for connection problems with

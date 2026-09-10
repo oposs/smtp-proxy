@@ -13,9 +13,39 @@ This non-blocking smtp proxy will use a REST call to determine if the incoming m
   "headers": [
     { "name": "To", "value": "foo@bar.com"},
      ...
+  ],
+  "mailParameters": [
+    { "keyword": "RET", "value": "HDRS" },
+     ...
+  ],
+  "rcptParameters": [
+    {
+      "address": "x@baz.com",
+      "parameters": [
+        { "keyword": "NOTIFY", "value": "SUCCESS,FAILURE" },
+         ...
+      ]
+    },
+     ...
   ]
 }
 ```
+
+`mailParameters` and `rcptParameters` carry the ESMTP parameters the client
+gave on `MAIL FROM` and `RCPT TO`, in the order they were received. A parameter
+written without a value, which RFC 5321 permits, has a `value` of `null`.
+
+`rcptParameters` has one entry per `RCPT TO` command rather than one per
+address, and is in the same order as `to`: the same recipient may be given
+twice with different parameters, and they are reported as the two separate
+requests they are.
+
+The RFC 3461 delivery status notification parameters (`RET` and `ENVID` on
+`MAIL`, `NOTIFY` and `ORCPT` on `RCPT`) are validated against RFC 3461 before
+the request is made -- a malformed one is refused with a 501 at the command
+that carried it and no request is issued -- and are relayed to the upstream
+server, provided it announces the `DSN` extension. Other parameters are
+reported here but are not relayed.
 
 ## Response
 
@@ -65,7 +95,7 @@ cd smtp-proxy
 ```
     --man            show man-page and exit
  -h,--help           display this help and exit
-    --listen=ip:port on which IP should we listen; use 0.0.0.0 to listen on all
+    --listen=ip:port on which IP should we listen; use 0.7.7.0 to listen on all
     --user=x         drop privileges and become this user after start
     --tohost=x       host of the SMTP server to proxy to
     --toport=x       port of the SMTP server to proxy to

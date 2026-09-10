@@ -3,7 +3,12 @@ package SMTPProxy;
 use Mojo::Base -base, -signatures;
 use Mojo::Log;
 use Mojo::Promise;
-use Mojo::SMTP::Client;
+# Named below for its command id constants. Loaded explicitly rather than left
+# to arrive as a side effect of RelayClient inheriting from it: that made this
+# file compile only for as long as that inheritance happens to exist, and
+# nothing here would have said so.
+use Mojo::SMTP::Client ();
+use SMTPProxy::RelayClient;
 use SMTPProxy::SMTPServer;
 use Mojo::Util qw(dumper);
 
@@ -11,6 +16,14 @@ has [qw(
     listen tohost toport user tls_cert tls_key api service_name
     smtplog credentials
 )];
+
+# Whether the upstream announces DSN. Undefined until we have asked it, and
+# treated as "no" until then: announcing DSN to a client is a promise that
+# notifications it asks for will be produced, and the cost of getting that
+# wrong in this direction is that a sender who asked for silence with
+# NOTIFY=NEVER gets the RFC 3461 default of FAILURE instead. The cost the other
+# way is only that a client does not ask.
+has 'upstreamDsn';
 
 has log => sub ($self) {
     Mojo::Log->new(
@@ -32,6 +45,7 @@ sub setup ($self) {
         require_starttls => 1,
         require_auth => 1,
         timeout => 0,
+        dsnAvailable => sub { $self->upstreamDsn ? 1 : 0 },
     );
     $server->setup(sub ($connection) {
         # State the proxy collects to send to the API and target mail
@@ -44,19 +58,33 @@ sub setup ($self) {
             $collected{password} = $password;
             return Mojo::Promise->resolve;
         });
-        $connection->mail(sub ($from, $parameters) {
-
-            # reset the collected data except for authentication.
-            # note, it is possible to send multiple mails per connction!
+        # A transaction begins at MAIL and is abandoned by RSET, and neither
+        # of those ends the session: it is possible to send several mails on
+        # one connection, and RFC 4954 ties authentication to the session
+        # rather than to the transaction, so the client is not asked to log in
+        # again and the credentials it gave once have to outlive both.
+        my $startTransaction = sub {
             %collected = (
                 username => $collected{username},
                 password => $collected{password},
             );
+            return;
+        };
+        $connection->mail(sub ($from, $parameters) {
+            $startTransaction->();
             $collected{from} = $from;
+            $collected{mailParameters} = $parameters // [];
             return Mojo::Promise->resolve('got MAIL');
         });
         $connection->rcpt(sub ($to, $parameters) {
-            push @{$collected{to} //= []}, $to;
+            # One entry per RCPT, in the order they arrived, rather than a map
+            # keyed by address. The same recipient may legitimately be given
+            # twice with different DSN parameters -- extra RCPTs are an
+            # explicitly supported path -- and a map merges those two into
+            # whichever came last, which RFC 3461 5.2.1 forbids and which turns
+            # NOTIFY=NEVER into NOTIFY=SUCCESS rather than losing it.
+            push @{$collected{recipients} //= []},
+                { address => $to, parameters => $parameters // [] };
             return Mojo::Promise->resolve('got RCPT');
         });
         $connection->data(sub ($headersPromise, $bodyPromise) {
@@ -120,10 +148,64 @@ sub setup ($self) {
             return Mojo::Promise->reject('Unimplemented');
         });
         $connection->rset(sub {
-            %collected = ();
+            $startTransaction->();
         });
     });
     $self->_dropPrivs if $self->user;
+    $self->probeUpstream;
+    return;
+}
+
+# There is no upstream connection at the time a client sends EHLO, so whether
+# DSN can be honoured is not knowable from the session itself. It is asked once
+# here, at startup, and kept current from every mail that is relayed
+# afterwards, so an upstream that gains or loses the extension is noticed
+# without polling it.
+#
+# Returns a promise that resolves once the answer is in, or once asking has
+# failed; it never rejects. A client that connects before the answer arrives is
+# simply not offered DSN.
+sub probeUpstream ($self) {
+    my $log = $self->log;
+    my $where = $self->tohost . ':' . $self->toport;
+    my $done = Mojo::Promise->new;
+    my $probe = SMTPProxy::RelayClient->new(
+        address => $self->tohost,
+        port => $self->toport,
+        log => $log,
+    );
+    # Kept here rather than closed over, so the callback does not hold the
+    # client alive through a reference cycle.
+    $self->{upstreamProbeClient} = $probe;
+    $log->debug("Asking $where which extensions it offers");
+    $probe->send(quit => 1, sub ($probe, $resp) {
+        delete $self->{upstreamProbeClient};
+        if (my $error = $resp->error) {
+            $log->warn("Could not ask $where which extensions it offers " .
+                "($error); DSN will not be announced until a mail is relayed");
+        }
+        else {
+            $self->_noteUpstreamDsn($log, $where, $probe->upstreamSupportsDsn);
+        }
+        $done->resolve;
+    });
+    return $self->{upstreamProbe} = $done;
+}
+
+# For tests and for anything that wants to wait until the answer is in.
+sub upstreamProbe ($self) {
+    return $self->{upstreamProbe};
+}
+
+sub _noteUpstreamDsn ($self, $log, $where, $supported) {
+    my $previous = $self->upstreamDsn;
+    $self->upstreamDsn($supported);
+    return if defined $previous && $previous == $supported;
+    $log->info("$where " .
+        ($supported ? 'announces DSN' : 'does not announce DSN') .
+        '; the extension will ' . ($supported ? '' : 'not ') .
+        'be offered to clients');
+    return;
 }
 
 sub _dropPrivs ($self) {
@@ -137,12 +219,19 @@ sub _dropPrivs ($self) {
 
 sub _callAPI ($self,$log, %collected) {
     $log->debug('Making call to auth/headers API');
+    my $recipients = $collected{recipients} // [];
     return $self->api->check($log,
         username => $collected{username},
         password => $collected{password},
         from => $collected{from},
-        to => $collected{to},
-        headers => $collected{headers}
+        # `to` keeps its long standing shape, a flat list of addresses in the
+        # order they were given. The parameters travel beside it, one entry per
+        # RCPT, so an API that wants to see them can and one that does not is
+        # unaffected.
+        to => [map { $_->{address} } @$recipients],
+        headers => $collected{headers},
+        mailParameters => $collected{mailParameters},
+        rcptParameters => $recipients
     );
 }
 
@@ -162,24 +251,42 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
 
     my $formattedHeaders = join '',
         map { $_->{name} . ': ' . $_->{value} . "\r\n" } @headers;
-    my $smtp = Mojo::SMTP::Client->new(
+    my $smtp = SMTPProxy::RelayClient->new(
         address => $self->tohost,
         port => $self->toport,
         autodie => 1,
+        log => $log,
     );
     my $last_ok_message = '';
     $smtp->inactivity_timeout(60); # relax :)
-    my $first_ok_skip;
+    # The response event carries a command id, so the test has to be against
+    # one of those. CMD_DATA_END is the reply to the terminating dot, which is
+    # where the upstream states that it has taken responsibility for the
+    # message -- in production, its queue id.
+    #
+    # It used to compare against CMD_OK, which is a reply class rather than a
+    # command id and happens to have the same numeric value as CMD_EHLO, so the
+    # handler fired once per session on the EHLO reply and never on the one
+    # that was wanted.
     $smtp->on(response => sub ($smtp, $cmd, $resp) {
-        if ($cmd == Mojo::SMTP::Client::CMD_OK) {
-           # and after first response others should be fast enough
-           $last_ok_message = $resp if $resp and $first_ok_skip;
-           $first_ok_skip = 1;
+        # Every relay re-answers the question the startup probe asked, so the
+        # announcement follows an upstream that gains or loses DSN.
+        if ($cmd == Mojo::SMTP::Client::CMD_EHLO) {
+            $self->_noteUpstreamDsn($log, $self->tohost . ':' . $self->toport,
+                $smtp->upstreamSupportsDsn);
+            return;
         }
+        return unless $cmd == Mojo::SMTP::Client::CMD_DATA_END;
+        $last_ok_message = $resp->message if $resp;
     });
     $smtp->send(
-        from     => $apiResult->{from} || $mail{from},
-        to       => $mail{to},
+        from     => {
+            address    => $apiResult->{from} || $mail{from},
+            parameters => $mail{mailParameters},
+        },
+        # Already the shape RelayClient::_splitAddress consumes, so there is no
+        # re-join by address here to get wrong.
+        to       => $mail{recipients},
         data     => $formattedHeaders . "\r\n" . $mail{body},
         quit     => 1,
         sub {
@@ -193,11 +300,19 @@ sub _relayMail ($self,$log, $resultPromise, $clientAddress, $apiResult, %mail) {
                 return $resultPromise->reject($error);
             }
             else {
-                $log->debug("Upstream server says: ".$resp->message. " ($last_ok_message)");
+                # Mojo::SMTP::Client::Response::message caches into a field it
+                # then forgets to return, so a second call on the same object
+                # yields the empty string. Ask once.
+                my $message = $resp->message;
+                $log->debug("Upstream server says: $message ($last_ok_message)");
                 $log->info('Relayed mail successfully for ' .
                     $clientAddress .
                     ( $apiResult && $apiResult->{authId} ? " using token $apiResult->{authId}" : " using no token"));
-                $resultPromise->resolve($last_ok_message // $resp->message);
+                # Defined-or was never the right test: the accumulator starts
+                # as the empty string, which is defined, so the fallback could
+                # not be reached even when nothing had been collected.
+                $resultPromise->resolve(length($last_ok_message)
+                    ? $last_ok_message : $message);
             }
         }
     );
@@ -278,7 +393,32 @@ An object having a method `check`, which will be called like this:
         headers => [
             { name => 'To', value => 'foo@bar.com' },
             ...
+        ],
+        # ESMTP parameters given on MAIL FROM, in the order received
+        mailParameters => [
+            { keyword => 'RET', value => 'HDRS' },
+            ...
+        ],
+        # ESMTP parameters given on RCPT TO, one entry per RCPT command in
+        # the order received, so a recipient repeated with different
+        # parameters is reported as the two requests it was
+        rcptParameters => [
+            {
+                address => 'x@baz.com',
+                parameters => [
+                    { keyword => 'NOTIFY', value => 'SUCCESS,FAILURE' },
+                    ...
+                ],
+            },
+            ...
         ])
+
+A parameter given without a value, which RFC 5321 permits, has an undefined
+C<value>. The RFC 3461 delivery status notification parameters (C<RET> and
+C<ENVID> on MAIL, C<NOTIFY> and C<ORCPT> on RCPT) are relayed to the upstream
+server, provided it announces the C<DSN> extension; see
+L<SMTPProxy::RelayClient>. Other parameters are reported to the API but are
+not relayed.
 
 And will return a C<Mojo::Promise> that will resolve to a hashref like either:
 

@@ -8,7 +8,9 @@ our @EXPORT = qw(parseCommand);
 sub parseCommand {
     my $buffer = shift;
     my $parsed;
-    if ($buffer =~ /^([A-Za-z]+)(?: (.*))?\r\n(.*)/) {
+    # /s so the unparsed remainder keeps its line breaks; the argument group
+    # is bounded explicitly so it still cannot run past the end of the line.
+    if ($buffer =~ /^([A-Za-z]+)(?: ([^\r\n]*))?\r\n(.*)/s) {
         # Trim parsed command from the buffer, set up parsed result.
         $buffer = $3;
         my $command = uc $1;
@@ -16,11 +18,22 @@ sub parseCommand {
         $parsed = { command => $command };
 
         # Now parse by command.
-        if ($command eq 'EHLO' || $command eq 'EHLO') {
-            $parsed->{domain} = $arguments;
+        # RFC 5321 4.1.1.1: the domain is part of the command, not an option.
+        # The commands below that take no argument already check that none was
+        # given, so accepting these without one was an asymmetry with nothing
+        # behind it -- and the domain is the identity the session goes on to be
+        # logged and greeted under.
+        if ($command eq 'EHLO' || $command eq 'HELO') {
+            if (defined $arguments && length $arguments) {
+                $parsed->{domain} = $arguments;
+            }
+            else {
+                $parsed->{error} = 'domain required';
+                $parsed->{suggested_reply} = 501;
+            }
         }
-        elsif ($command eq 'PING') {
-            $parsed->{text} = $arguments;
+        elsif ($command eq 'NOOP') {
+            # RFC 5321 4.1.1.9 allows an argument, which is ignored.
         }
         elsif ($command eq 'QUIT' || $command eq 'STARTTLS' || $command eq 'DATA' ||
                $command eq 'RSET') {
@@ -30,8 +43,14 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'AUTH') {
-            if ($arguments =~ /^(\w+)(?: (.*))?$/) {
-                $parsed->{mechanism} = $1;
+            # RFC 4954 section 4: a mechanism name is 1*20 of upper alpha,
+            # digit, hyphen and underscore. \w would have covered all of that
+            # bar the hyphen, which is what CRAM-MD5 and every SCRAM- name
+            # contain, so those failed to parse and drew a 501 the client can
+            # do nothing with instead of the 504 that tells it to try another.
+            if (defined $arguments &&
+                $arguments =~ /^([A-Za-z0-9_-]{1,20})(?: (.*))?$/) {
+                $parsed->{mechanism} = uc $1;
                 $parsed->{initial} = $2;
             }
             else {
@@ -40,11 +59,18 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'MAIL') {
-            # SP-28: allow MAIL From: <address> [parameters] (RFC 5321, section 4.1.1.2 requires uppercase "FROM",
-            #        but we will be lenient and allow capitalized "From" as well
-            if ($arguments =~ /^(?:FROM|From):\s*<([^>]+)>(?: (.*))?$/) {
+            # SP-28: RFC 5321 section 2.4 says verbs and argument values are
+            # not case sensitive, offering '"TO:" or "to:"' as its example, so
+            # the keyword is matched without regard to case.
+            # An empty reverse path (MAIL FROM:<>) is the null return path
+            # used by bounces and DSN messages, so it must be accepted.
+            # A bare MAIL has no argument at all, so $arguments is undef;
+            # the AUTH branch above guards for that and these two did not.
+            if (defined $arguments &&
+                $arguments =~ /^FROM:\s*<([^>]*)>(?: (.*))?$/i) {
                 $parsed->{from} = $1;
-                if ($2) {
+                # Definedness, not truth: "0" is a well formed esmtp-keyword.
+                if (defined $2 && length $2) {
                     my $parameters = _parseParameters($2);
                     if ($parameters) {
                         $parsed->{parameters} = $parameters;
@@ -64,9 +90,10 @@ sub parseCommand {
             }
         }
         elsif ($command eq 'RCPT') {
-            if ($arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/) {
+            if (defined $arguments &&
+                $arguments =~ /^TO:\s*<([^>]+)>(?: (.*))?$/i) {
                 $parsed->{to} = $1;
-                if ($2) {
+                if (defined $2 && length $2) {
                     my $parameters = _parseParameters($2);
                     if ($parameters) {
                         $parsed->{parameters} = $parameters;
@@ -81,30 +108,55 @@ sub parseCommand {
                 }
             }
             else {
-                $parsed->{error} = 'invalid MAIL arguments';
+                $parsed->{error} = 'invalid RCPT arguments';
                 $parsed->{suggested_reply} = 501;
             }
         }
         elsif ($command eq 'VRFY') {
-            $parsed->{string} = $arguments;
+            # RFC 5321 4.1.1.6 likewise: VRFY takes a string.
+            if (defined $arguments && length $arguments) {
+                $parsed->{string} = $arguments;
+            }
+            else {
+                $parsed->{error} = 'string required';
+                $parsed->{suggested_reply} = 501;
+            }
         }
         else {
             $parsed->{error} = 'unknown command';
             $parsed->{suggested_reply} = 502;
         }
     }
-    elsif ($buffer =~ /\n/) {
+    elsif ($buffer =~ s/^[^\n]*\n//) {
+        # Consume the line being rejected. Leaving it in place would hand the
+        # caller a buffer whose head can never parse: it would draw a 500 for
+        # that line, and another for every packet the client sent afterwards,
+        # while the buffer grew without bound and no later command was ever
+        # reached.
         $parsed = { error => 'malformed command', suggested_reply => 500 };
     }
     return ($parsed, $buffer);
 }
 
+# Parses an esmtp-param list (RFC 5321 section 4.1.2). Returns an arrayref of
+# keyword/value pairs, or undef if any parameter is malformed. The value is
+# undef for a bare keyword, which the grammar permits. Returning undef rather
+# than skipping a bad parameter matters: silently dropping one would tell the
+# client we honoured something we discarded.
 sub _parseParameters {
     my @paramStrings = split ' ', shift;
     my @parameters;
     for (@paramStrings) {
-        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([^\x00-\x20=]+))/) {
+        # RFC 5321 4.1.2: an esmtp-value is made of characters excluding "=",
+        # space and the control characters, which is to say printable ASCII.
+        # Spelling it as a negated class also admitted DEL and every octet from
+        # 0x80 up, so a value could carry bytes onto an upstream command line
+        # in a session where SMTPUTF8 was never negotiated.
+        if (/^([A-Za-z0-9][A-Za-z0-9-]*)(?:=([\x21-\x3c\x3e-\x7e]+))?$/) {
             push @parameters, { keyword => $1, value => $2 };
+        }
+        else {
+            return undef;
         }
     }
     return \@parameters;
