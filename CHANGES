@@ -1,4 +1,4 @@
-unreleased
+0.8.0 2026-09-10 15:33:00 +0200 Fritz Zaucker <fritz.zaucker@oetiker.ch>
 
  - update Perl modules
  - SMTP protocol conformance against the RFC 5321 4.5.1 minimum
