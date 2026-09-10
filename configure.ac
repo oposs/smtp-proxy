@@ -35,7 +35,13 @@ fi
 
 AC_SUBST(URL_CAT)
 
-ac_perl_version="5.22.0"
+# Tied to the pinned dependency snapshots in thirdparty/. Only
+# cpanfile-5.32.snapshot is maintained, and the thirdparty build picks a
+# snapshot by the running perl's version -- so on an older perl there is no
+# snapshot to pick and carton resolves against CPAN instead, quietly
+# building against whatever is current rather than against what was tested.
+# Refusing at configure time says that out loud.
+ac_perl_version="5.32.0"
 
 if test -x "$PERL"; then
   AC_MSG_CHECKING(for perl version greater than or equal to $ac_perl_version)
